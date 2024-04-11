@@ -1,6 +1,7 @@
 # https://libgeos.org/usage/download/
 ARG DEBIAN_VERSION=bookworm
 ARG PREFIX=/usr/local
+ARG NGINX_VERSION=1.25.4
 
 # GEOS
 ARG GEOS_VERSION=3.11.3
@@ -147,6 +148,14 @@ ARG DEBIAN_VERSION
 FROM docker.io/library/debian:${DEBIAN_VERSION}-slim AS RELEASE-FCGI
 
 ARG PREFIX
+ARG MAPSERVER_VERSION
+
+LABEL org.opencontainers.image.title "MapServer SGB/CPRM"
+LABEL org.opencontainers.image.description "Build de mapserver a partir do código fonte"
+LABEL org.opencontainers.image.vendor "SGB/CPRM"
+LABEL org.opencontainers.image.version "${MAPSERVER_VERSION}"
+LABEL org.opencontainers.image.source "https://github.com/nds-cprm/mapserver-oci"
+LABEL org.opencontainers.image.authors "Carlos Eduardo Mota <carlos.mota@sgb.gov.br>"
 
 COPY fcgi/start.sh /
 
@@ -195,12 +204,20 @@ CMD [ "/start.sh" ]
 
 
 # Create Nginx version
-ARG NGINX_VERSION=1.25.4
+ARG NGINX_VERSION
 ARG DEBIAN_VERSION
 
 FROM docker.io/nginxinc/nginx-unprivileged:${NGINX_VERSION}-${DEBIAN_VERSION} AS RELEASE-NGINX
 
 ARG PREFIX
+ARG MAPSERVER_VERSION
+
+LABEL org.opencontainers.image.title "MapServer SGB/CPRM"
+LABEL org.opencontainers.image.description "Build de mapserver a partir do código fonte"
+LABEL org.opencontainers.image.vendor "SGB/CPRM"
+LABEL org.opencontainers.image.version "${MAPSERVER_VERSION}"
+LABEL org.opencontainers.image.source "https://github.com/nds-cprm/mapserver-oci"
+LABEL org.opencontainers.image.authors "Carlos Eduardo Mota <carlos.mota@sgb.gov.br>"
 
 USER root
 
