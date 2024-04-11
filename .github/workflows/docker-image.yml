@@ -2,8 +2,8 @@ name: Docker Image CI
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ "main" ]
+  #push:
+  #  branches: [ "main" ]
   #pull_request:
   #  branches: [ "main" ]
   #schedule:
@@ -48,14 +48,14 @@ jobs:
       uses: docker/scout-action@v1
       with:
         command: cves
-        image: ${{ steps.meta.outputs.tags }}
+        image: ndscprm/mapserver:7.6.5-auto # ${{ steps.meta.outputs.tags }}
         sarif-file: sarif.output.json
         summary: true
     
     - name: Upload SARIF result
       id: upload-sarif
       # if: ${{ github.event_name != 'pull_request_target' }}
-      uses: github/codeql-action/upload-sarif@v2
+      uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: sarif.output.json
           
