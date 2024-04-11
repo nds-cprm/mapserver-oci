@@ -1,0 +1,19 @@
+name: Docker Image CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  #pull_request:
+  #  branches: [ "main" ]
+  #schedule:
+  #- cron: "0 2 * * 1-5"
+
+jobs:
+
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build the Docker image
+      run: BULID_DATE=$(date +%Y%m%d-%H%M) && docker build . --file Dockerfile --tag ndscprm/mapserver:7.6.5-nginx-$BUILD_DATE && docker tag ndscprm/mapserver:7.6.5-nginx-$BUILD_DATE ndscprm/mapserver:7.6.5-nginx
