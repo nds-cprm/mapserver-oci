@@ -35,7 +35,7 @@ jobs:
         # Push is a shorthand for --output=type=registry
         push: true
         # List of tags
-        tags: 7.6.5
+        tags: ndscprm/mapserver:7.6.5-auto
         # Sets the target stage to build
         target: RELEASE-NGINX
           
