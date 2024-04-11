@@ -41,6 +41,8 @@ jobs:
         tags: ndscprm/mapserver:7.6.5-auto
         # Sets the target stage to build
         target: RELEASE-NGINX
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
         
     - name: Analyze for critical and high CVEs
       id: docker-scout-cves
