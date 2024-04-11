@@ -1,0 +1,60 @@
+MAP
+	NAME "ms-default"
+	IMAGETYPE png
+	FONTSET fonts.txt
+	SYMBOLSET symbols.sym
+	SHAPEPATH /var/lib/mapserver/data
+	UNITS dd
+	SIZE 1000 500
+	EXTENT -180 -90 180 90
+
+	PROJECTION
+		"init=epsg:4326"
+	END
+
+	INCLUDE "./mapfile.d/outputformat.inc.map"
+
+	WEB
+		METADATA
+			ows_title			"World Countries Generalized"
+			ows_onlineresource	"/mapserver"
+			wms_enable_request	"*"
+			wms_srs             "EPSG:3857 EPSG:4326 EPSG:4674"
+			# Ref: https://hub.arcgis.com/datasets/esri::world-countries-generalized/about
+		END
+	END
+
+	LAYER
+		NAME countries
+		STATUS ON
+		TYPE POLYGON
+		DATA "World_Countries_Generalized.shp"	
+		LABELITEM "COUNTRY"
+		PROJECTION
+			"init=epsg:4326"
+		END
+		METADATA
+			wms_title	"World Countries Generalized"
+		END
+		CLASS
+			NAME "Countries"
+			STYLE
+				OUTLINECOLOR 199 199 199
+				WIDTH 2.0
+			END
+			LABEL
+				COLOR 132 31 31
+				SHADOWCOLOR 218 218 218
+				SHADOWSIZE 2 2
+				TYPE TRUETYPE
+				FONT liberation
+				SIZE 8
+				ANTIALIAS TRUE
+				POSITION CL
+				PARTIALS FALSE
+				MINDISTANCE 300
+				BUFFER 4
+			END
+		END
+	END
+END
