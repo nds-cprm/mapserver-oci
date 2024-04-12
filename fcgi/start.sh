@@ -7,4 +7,4 @@ $MAPSERVER_CMD -v
 
 # TODO: use envsubst to insert MS variables on default.conf
 echo "Starting MapServer as FastCGI..."
-spawn-fcgi -p 8000 -d /var/lib/mapserver -n -- $MAPSERVER_CMD
+spawn-fcgi -p 8080 -d /var/lib/mapserver -n -- $MAPSERVER_CMD

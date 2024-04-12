@@ -195,7 +195,7 @@ ENV GDAL_DATA=${PREFIX}/share/gdal \
     PROJ_LIB=${PREFIX}/share/proj \
     MS_ERRORFILE=stderr
 
-EXPOSE 8000
+EXPOSE 8080
 
 ENTRYPOINT [ "tini", "--" ]
 
