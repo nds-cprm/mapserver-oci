@@ -4,6 +4,10 @@ Uma implementação personalizada do Mapserver, compilado diretamente do código
 
 Autor: Carlos Eduardo Mota
 
+## Flavours:
+- 7.6.5, 7.6.5-nginx: Mapserver embedded on Nginx
+- 7.6.5-fcgi: Mapserver standalone running with spawn-fcgi
+
 ## Build Args
 - DEBIAN_VERSION=bookworm
 - PREFIX=/usr/local
