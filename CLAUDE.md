@@ -17,9 +17,9 @@ Os dois `FROM` precisam apontar para o mesmo par de tags.
 - [fcgi/start.sh](fcgi/start.sh): `CMD` da release, que sobe o `spawn-fcgi` + `multiwatch`.
 - [data/](data/): mapfile de exemplo (`default.map`, WMS "World Countries Generalized" com shapefile da Esri, `fonts.txt`, `symbols.sym`, `mapfile.d/outputformat.inc.map`), copiado para `/var/lib/mapserver/data`.
 
-Arquivos que **não são usados** pelo Dockerfile (restos do build antigo, MapServer 7.6.5):
-- [nginx/](nginx/): `99-spawn-mapserver.sh` e `conf/default.conf`. O `location /mapserver` com `fastcgi_pass` ainda serve de exemplo para um proxy na frente da release.
-- [README.md](README.md): descreve o build antigo (bookworm, `PREFIX=/usr/local`, tags `7.6.5*`).
+- [README.md](README.md): documentação para quem usa a imagem (execução, variáveis, configuração, logs, build). Mantenha em sincronia com o Dockerfile.
+
+Resto do build antigo (MapServer 7.6.5):
 - [.github/workflows/docker-image.yml](.github/workflows/docker-image.yml) (só `workflow_dispatch`): faz build de `--target RELEASE-NGINX`, que não existe mais, então **o CI está quebrado**. Publica a tag fixa `ndscprm/mapserver:7.6.5-auto`, roda Docker Scout e envia o SARIF.
 
 ## Build e teste
@@ -93,7 +93,7 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
   - Com UID arbitrário (`--user <uid>:0`, OpenShift), o `nss_wrapper` da base cria o usuário virtual `sgb`.
   - Esse usuário roda com **GID 0** (padrão do `docker run --user <uid>`, do Kubernetes sem `runAsGroup` e do OpenShift). Por causa do `g=u`, ele pode escrever em `/var/lib/mapserver` e o `HOME` continua sendo `/var/lib/mapserver`.
   - Com um GID diferente de 0 (ex.: `--user 12345:12345`), o diretório não é gravável e o script da base troca o `HOME` para `/tmp`.
-- **ENV**: `MS_ERRORFILE=stderr`, `MAPSERVER_FCGI_PORT=8080`, `MAPSERVER_WORKERS=4` e `HOME=/var/lib/mapserver`.
+- **ENV**: `MAPSERVER_FCGI_PORT=8080`, `MAPSERVER_WORKERS=4` e `HOME=/var/lib/mapserver`. O `MS_ERRORFILE` fica sem valor de propósito (veja Logs, abaixo).
 - **Inicialização**: `EXPOSE 8080` e `CMD ["/start.sh"]`. O `ENTRYPOINT` é o da base e não deve ser trocado, porque é ele que roda o `nss_wrapper`.
 
 ## Execução FastCGI
@@ -106,7 +106,17 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
   - registra `Child[N] died, respawn`;
   - se o worker morreu logo depois de iniciar, registra `Spawning child[N] failed, next try` e sobe outro após um intervalo.
 - Como PID 1, o `multiwatch` trata o SIGTERM: o `docker stop` leva cerca de 0,3 s e termina com código 0, sem precisar de `tini`.
-- **Logs**: com `MS_ERRORFILE=stderr`, os erros do MapServer vão para o stream **stderr do protocolo FastCGI**. Quem os grava é o servidor web na frente (ex.: `error.log` do Nginx); eles **não** aparecem no `docker logs`. `MS_ERRORFILE=/dev/stderr` não funciona com o usuário não root, porque o pipe do container pertence ao root.
+- **Logs**: por padrão, os erros do MapServer vão para o `docker logs`.
+  - **Por que não `stderr` nem `/dev/stderr`:** no `mapserv` com FastCGI, `MS_ERRORFILE=stderr` aponta para o stream de erro do **protocolo FastCGI** (vai para o servidor web), e `/dev/stderr` não pode ser aberto por usuário não root, porque o pipe do container pertence ao root.
+  - **Como funciona:** quando `MS_ERRORFILE` não está definida, o `start.sh`:
+    1. cria o FIFO `/tmp/mapserver-errors.fifo` (do próprio usuário);
+    2. abre o FIFO em leitura e escrita no **fd 3** (`exec 3<>`), herdado por `spawn-fcgi`, `multiwatch` (PID 1) e workers;
+    3. sobe o leitor `( while :; do cat <&3 >&2 || :; sleep 1; done ) &`;
+    4. exporta `MS_ERRORFILE` apontando para o FIFO.
+  - **Por que o fd 3:** os workers abrem o FIFO ao **iniciar**. Sem um leitor, esse `fopen` trava para sempre: o processo fica em `S`, no `wait_for_partner`, sem aceitar conexões, e o `multiwatch` não percebe, porque só reage quando o worker termina. Com o fd 3 aberto no `multiwatch`, sempre existe um leitor, então o `fopen` nunca trava e o `cat` nunca recebe EOF.
+  - **Leitor:** se o `cat` morrer, o laço o reinicia em 1 s, e as mensagens esperam no buffer de 64 KB do pipe. O `|| :` é necessário porque, sem ele, o `set -e` encerraria o laço junto com o `cat`. Para parar de registrar logs seria preciso matar o `cat` e o laço; mesmo assim, os workers só travam (na escrita) depois de encher 64 KB.
+  - **Patch no `build`:** em arquivo ou FIFO, o MapServer usa `fopen` com buffer completo (4 KB) e não faz `flush` por mensagem. Isso atrasa e perde mensagens, e pode misturar linhas de workers diferentes. O `build` aplica com `sed` um `setvbuf(debuginfo->fp, NULL, _IOLBF, 0)` logo depois de `debug_mode = MS_DEBUGMODE_FILE` em `src/mapdebug.c`, e um `grep -q` faz o build falhar se o trecho mudar numa versão nova. Com gravação linha a linha, cada mensagem tem menos de `PIPE_BUF`, então a escrita no FIFO é atômica: 200 requisições simultâneas geraram 200 linhas íntegras.
+  - **Alternativas:** `-e MS_ERRORFILE=stderr` manda os erros para o servidor web, e um caminho de arquivo grava num arquivo.
 
 ## Configuração do MapServer 8 ([etc/mapserver.conf](etc/mapserver.conf))
 
@@ -115,7 +125,7 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
   - `MS_MAP_PATTERN "^/var/lib/mapserver/"`: obrigatório para usar `map=/caminho`; bloqueia caminhos fora do diretório (ex.: `map=/etc/passwd` → "fails to validate");
   - `OGCAPI_HTML_TEMPLATE_DIRECTORY`, apontando para `share/mapserver/ogcapi/templates/html-bootstrap/`.
 - O alias `MAPS { DEFAULT ... }` permite `map=DEFAULT`.
-- Configurações que devem poder ser alteradas por ambiente (ex.: `MS_ERRORFILE`) ficam em `ENV` no Dockerfile.
+- Configurações que devem poder ser alteradas por ambiente (ex.: `MS_ERRORFILE`) não podem ficar no `mapserver.conf`; ficam em `ENV` no Dockerfile ou no `start.sh`.
 
 ## Atualizar versões
 
