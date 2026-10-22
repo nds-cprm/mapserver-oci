@@ -30,9 +30,9 @@ A imagem resultante é a própria imagem de desenvolvimento (cerca de 2,7 GB, co
 1. `ARG` globais: `GDAL_VERSION=3.12.4`, `PYTHON_VERSION=3.12`, `BASE_DIR=/opt/geosgb`. `GDAL_VERSION` e `PYTHON_VERSION` montam a tag da base no `FROM` (`gdal:${GDAL_VERSION}-py${PYTHON_VERSION}-devel`) e precisam corresponder a uma tag publicada.
 2. `SHELL` com `bash -o pipefail` durante o build, voltando para `/bin/sh -c` no final.
 3. apt: instala `libfreetype-dev` e `libfcgi-dev`. Os demais headers (libpng, libjpeg, libpq, libxml2, PROJ, GEOS) já vêm da base.
-4. `ENV ORACLE_HOME=/opt/geosgb/oracle/instantclient_19_32`, exigido pelo `-DWITH_ORACLESPATIAL=ON`. O caminho é fixo e precisa acompanhar a versão do Instant Client da base; esse `ENV` permanece na imagem final.
-5. MapServer:
+4. MapServer:
    - baixa `mapserver-${MAPSERVER_VERSION}.tar.gz` da release do GitHub (tag `rel-X-Y-Z`, derivada com `${MAPSERVER_VERSION//./-}`, por isso o `RUN` precisa do bash), verifica com `sha256sum -c` contra `MAPSERVER_SHA256` e extrai em `${BASE_DIR}/src` (mesma convenção da base de manter o código-fonte);
+   - `ORACLE_HOME` é uma variável local do `RUN`, descoberta com `echo ${BASE_DIR}/oracle/instantclient_*` (o build falha se não for um diretório) e passada só para o `cmake`. O MapServer lê essa variável apenas na configuração (`$ENV{ORACLE_HOME}` no `FindORACLE.cmake`); em runtime as bibliotecas do Oracle são encontradas pelo `ld.so.conf.d` da base, então não é preciso `ENV` na imagem;
    - compila com CMake (`Release`) num subshell `( cd build && ... )` e instala em `${BASE_DIR}`; depois remove só o diretório `build/` (o código-fonte fica) e roda `ldconfig`. O `mapserv` também tem `RUNPATH=/opt/geosgb/lib`;
    - fica **sem** cURL, Cairo/SVG-Cairo, HarfBuzz, FriBiDi, GIF, SOS, Protobuf-c e clientes WMS/WFS;
    - fica **com** libxml2 e Oracle Spatial.
@@ -43,9 +43,6 @@ A imagem resultante é a própria imagem de desenvolvimento (cerca de 2,7 GB, co
 curl -s https://api.github.com/repos/MapServer/MapServer/releases/tags/rel-8-6-6 | jq -r '.assets[] | select(.name == "mapserver-8.6.6.tar.gz") | .digest'
 curl -sL https://download.osgeo.org/mapserver/mapserver-8.6.6.tar.gz | sha256sum
 ```
-
-Pendência no trecho ativo: o caminho do `ORACLE_HOME` é fixo. A base `ndscprm/gdal` vai passar a definir `ORACLE_HOME`. Quando a tag usada no `FROM` trouxer essa variável (confira com `docker image inspect ... --format '{{json .Config.Env}}'`), remova o `ENV ORACLE_HOME` daqui.
-
 ## Imagem base (`ndscprm/gdal:*-devel`)
 
 Fatos verificados na tag `3.12.4-py3.12-devel` que afetam este projeto:

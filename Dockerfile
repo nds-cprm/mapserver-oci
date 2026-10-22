@@ -23,8 +23,6 @@ RUN apt-get -y update && \
     apt-get -y autoremove && \
     rm -rf /var/lib/apt/lists/*
 
-ENV ORACLE_HOME=/opt/geosgb/oracle/instantclient_19_32
-
 # Compile and install Mapserver
 RUN MAPSERVER_URL=https://github.com/MapServer/MapServer/releases/download/rel-${MAPSERVER_VERSION//./-}/mapserver-${MAPSERVER_VERSION}.tar.gz && \
     wget -q "${MAPSERVER_URL}" && \
@@ -35,8 +33,11 @@ RUN MAPSERVER_URL=https://github.com/MapServer/MapServer/releases/download/rel-$
     rm "mapserver-${MAPSERVER_VERSION}.tar.gz" && \
     MAPSERVER_DIR=${BASE_DIR}/src/mapserver-${MAPSERVER_VERSION} && \
     mkdir -p "$MAPSERVER_DIR/build" && \
+    # ORACLE_HOME is only read by cmake (WITH_ORACLESPATIAL); use the Instant Client shipped by the base image
+    ORACLE_HOME=$(echo "${BASE_DIR}"/oracle/instantclient_*) && \
+    test -d "$ORACLE_HOME" && \
     ( cd "$MAPSERVER_DIR/build" && \
-    cmake \
+    ORACLE_HOME="$ORACLE_HOME" cmake \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=${BASE_DIR} \
         -DWITH_CLIENT_WFS=OFF \
