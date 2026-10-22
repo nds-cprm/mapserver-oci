@@ -8,58 +8,140 @@ on:
   #  branches: [ "main" ]
   #schedule:
   #- cron: "0 2 * * 1-5"
+
+env:
+  IMAGE: ndscprm/mapserver
+
 jobs:
+  # One job per architecture on native runners. Images are pushed by digest only (no tag);
+  # the merge job assembles the multi-platform tags from those digests.
   build:
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+        - arch: amd64
+          runner: ubuntu-24.04
+        - arch: arm64
+          runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-      
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-      
+
     - name: Login to Docker Hub
       uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
-        
-    - name: Build and push Docker images
-      # You may pin to the exact commit or the version.
-      # uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0
+
+    # devel first (toolchain, headers and sources); release reuses its cached build stage
+    - name: Build and push devel image
+      id: devel
       uses: docker/build-push-action@v5.3.0
       with:
-        # Build's context is the set of files located in the specified PATH or URL
         context: .
-        # Path to the Dockerfile
         file: Dockerfile
+        platforms: linux/${{ matrix.arch }}
         # Always attempt to pull all referenced images
         pull: true
-        # Push is a shorthand for --output=type=registry
-        push: true
-        # List of tags
-        tags: ndscprm/mapserver:7.6.5-auto
-        # Sets the target stage to build
-        target: RELEASE-NGINX
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-        
+        outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+        target: build
+        cache-from: type=gha,scope=${{ matrix.arch }}
+        cache-to: type=gha,scope=${{ matrix.arch }},mode=max
+
+    - name: Build and push release image
+      id: release
+      uses: docker/build-push-action@v5.3.0
+      with:
+        context: .
+        file: Dockerfile
+        platforms: linux/${{ matrix.arch }}
+        # Always attempt to pull all referenced images
+        pull: true
+        outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+        target: release
+        cache-from: type=gha,scope=${{ matrix.arch }}
+        cache-to: type=gha,scope=${{ matrix.arch }},mode=max
+
+    - name: Export digests
+      env:
+        DEVEL_DIGEST: ${{ steps.devel.outputs.digest }}
+        RELEASE_DIGEST: ${{ steps.release.outputs.digest }}
+      run: |
+        mkdir -p "${{ runner.temp }}/digests/devel" "${{ runner.temp }}/digests/release"
+        touch "${{ runner.temp }}/digests/devel/${DEVEL_DIGEST#sha256:}"
+        touch "${{ runner.temp }}/digests/release/${RELEASE_DIGEST#sha256:}"
+
+    - name: Upload digests
+      uses: actions/upload-artifact@v4
+      with:
+        name: digests-${{ matrix.arch }}
+        path: ${{ runner.temp }}/digests/*
+        if-no-files-found: error
+        retention-days: 1
+
+  # Creates the multi-platform tags (<MAPSERVER_VERSION> and <MAPSERVER_VERSION>-devel) and scans the release
+  merge:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Get image tags from the Dockerfile
+      id: meta
+      run: |
+        MAPSERVER_VERSION=$(sed -n 's/^ARG MAPSERVER_VERSION=//p' Dockerfile)
+        test -n "$MAPSERVER_VERSION"
+        echo "release=${IMAGE}:${MAPSERVER_VERSION}" >> "$GITHUB_OUTPUT"
+        echo "devel=${IMAGE}:${MAPSERVER_VERSION}-devel" >> "$GITHUB_OUTPUT"
+
+    - name: Download digests
+      uses: actions/download-artifact@v4
+      with:
+        path: ${{ runner.temp }}/digests
+        pattern: digests-*
+        merge-multiple: true
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Create multi-platform tags
+      env:
+        DEVEL_TAG: ${{ steps.meta.outputs.devel }}
+        RELEASE_TAG: ${{ steps.meta.outputs.release }}
+      working-directory: ${{ runner.temp }}/digests
+      run: |
+        for variant in devel release; do
+          if [ "$variant" = devel ]; then tag=$DEVEL_TAG; else tag=$RELEASE_TAG; fi
+          # shellcheck disable=SC2046
+          docker buildx imagetools create -t "$tag" $(printf "${IMAGE}@sha256:%s " $(ls "$variant"))
+          docker buildx imagetools inspect "$tag"
+        done
+
     - name: Analyze for critical and high CVEs
       id: docker-scout-cves
       # if: ${{ github.event_name != 'pull_request_target' }}
       uses: docker/scout-action@v1
       with:
         command: cves
-        image: ndscprm/mapserver:7.6.5-auto # ${{ steps.meta.outputs.tags }}
+        image: ${{ steps.meta.outputs.release }}
         sarif-file: sarif.output.json
         summary: true
-    
+
     - name: Upload SARIF result
       id: upload-sarif
       # if: ${{ github.event_name != 'pull_request_target' }}
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: sarif.output.json
-          
-    #- name: Build the Docker image
-    #  run: BULID_DATE=$(date +%Y%m%d-%H%M) && docker build . --file Dockerfile --tag ndscprm/mapserver:7.6.5-nginx-$BUILD_DATE && docker tag ndscprm/mapserver:7.6.5-nginx-$BUILD_DATE ndscprm/mapserver:7.6.5-nginx

@@ -19,8 +19,19 @@ Os dois `FROM` precisam apontar para o mesmo par de tags.
 
 - [README.md](README.md): documentação para quem usa a imagem (execução, variáveis, configuração, logs, build). Mantenha em sincronia com o Dockerfile.
 
-Resto do build antigo (MapServer 7.6.5):
-- [.github/workflows/docker-image.yml](.github/workflows/docker-image.yml) (só `workflow_dispatch`): faz build de `--target RELEASE-NGINX`, que não existe mais, então **o CI está quebrado**. Publica a tag fixa `ndscprm/mapserver:7.6.5-auto`, roda Docker Scout e envia o SARIF.
+- [.github/workflows/docker-image.yml](.github/workflows/docker-image.yml): CI, que só roda manualmente (`workflow_dispatch`). Gera imagens **multiplataforma (amd64 e arm64)** em runners nativos, sem QEMU, no padrão da Docker de build por digest + merge.
+  1. **Job `build`**, uma matriz por arquitetura (`amd64` em `ubuntu-22.04`, `arm64` em `ubuntu-24.04-arm`):
+     - faz build com `platforms: linux/<arch>`, `pull: true` e cache GHA com escopo por arquitetura (`scope=<arch>`, para um job não sobrescrever o cache do outro);
+     - faz build primeiro do alvo `build` (devel) e depois do `release`, que reaproveita o estágio `build` do cache;
+     - publica sem tag (`push-by-digest=true`) e envia os digests como artifact `digests-<arch>` (`devel/` e `release/`).
+  2. **Job `merge`**:
+     - lê o `ARG MAPSERVER_VERSION` do Dockerfile com `sed`; o passo falha se não encontrar;
+     - cria os índices multiplataforma com `docker buildx imagetools create`, seguindo a política de tags da base GDAL: `ndscprm/mapserver:<MAPSERVER_VERSION>-devel` e `ndscprm/mapserver:<MAPSERVER_VERSION>`;
+     - roda o Docker Scout (CVEs) só na release e envia o SARIF para o GitHub.
+  - **Depende da base multiplataforma:** as tags `ndscprm/gdal:<GDAL>-py<PY>-devel` e `ndscprm/gdal:<GDAL>-py<PY>` precisam ter variantes amd64 e arm64. Enquanto não tiverem, o job arm64 falha no `FROM`. Confira com `docker buildx imagetools inspect docker.io/ndscprm/gdal:<tag>`.
+  - **Dockerfile independente de arquitetura:** não deve ter nada preso a uma arquitetura. Hoje não tem: o Oracle é encontrado por glob `instantclient_*`, os pacotes vêm do `ldd` + `dpkg -S` e o `libaio` vem da base.
+  - Não há tag de versão escrita no workflow: ao mudar o `MAPSERVER_VERSION`, a tag acompanha. Mantenha o `ARG MAPSERVER_VERSION=` numa linha própria, no começo da linha, para o `sed` encontrar.
+  - Validar alterações com `actionlint`, por exemplo `docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.7 .github/workflows/docker-image.yml`.
 
 ## Build e teste
 

@@ -102,6 +102,12 @@ docker run --rm --network mstest debian:trixie-slim bash -c '
 
 ## Build
 
+São publicadas duas tags por versão, como na imagem base GDAL:
+- `ndscprm/mapserver:<versão>`: imagem final;
+- `ndscprm/mapserver:<versão>-devel`: imagem de desenvolvimento, para depurar ou compilar código que dependa do MapServer.
+
+As duas tags são multiplataforma (`linux/amd64` e `linux/arm64`). O Docker escolhe sozinho a variante da máquina. Para construir uma arquitetura específica localmente, use `docker buildx build --platform linux/arm64 ...`; para isso, a imagem base também precisa existir nessa arquitetura.
+
 ```bash
 # imagem final (FastCGI)
 docker build -t docker.io/ndscprm/mapserver:8.6.6 .
