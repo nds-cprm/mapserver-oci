@@ -52,11 +52,20 @@ Os valores do bloco `ENV` do `mapserver.conf` **têm prioridade sobre as variáv
 docker run ... -v ./mapserver.conf:/opt/geosgb/etc/mapserver.conf:ro docker.io/ndscprm/mapserver:8.6.6
 ```
 
-Para a OGC API, a rota vai no caminho da URL (ex.: `/mapserver/DEFAULT/ogcapi`), e o mapfile precisa ter `oga_enable_request`.
+Para a OGC API, a rota vai no caminho da URL (ex.: `/mapserver/DEFAULT/ogcapi`). O mapfile precisa ter:
+- `oga_enable_request` e `oga_onlineresource` (a URL base usada nos links) no `WEB METADATA`;
+- em cada camada publicada como coleção do OGC API Features: `TEMPLATE` (camada consultável), `gml_featureid` (campo identificador) e `gml_include_items` (atributos retornados).
 
 ### Exemplo incluído
 
-Em `/var/lib/mapserver/data` há um mapfile de exemplo (`default.map`), um WMS com o shapefile "World Countries Generalized" da Esri.
+Em `/var/lib/mapserver/data` há um mapfile de exemplo (`default.map`) com o shapefile "World Countries Generalized" da Esri (camada `countries`). Ele é publicado por:
+
+| Serviço | Requisição |
+|---------|------------|
+| WMS (GetCapabilities, GetMap e GetFeatureInfo) | `/mapserver?map=DEFAULT&SERVICE=WMS&REQUEST=GetCapabilities` |
+| OGC API Features (JSON/GeoJSON e HTML) | `/mapserver/DEFAULT/ogcapi/collections/countries/items?f=json` |
+
+As rotas consideram um proxy que encaminha `/mapserver` para o FastCGI.
 
 ## Logs
 

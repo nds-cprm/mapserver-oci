@@ -42,7 +42,12 @@ docker run --rm --network mstest debian:trixie-slim bash -c '
     cgi-fcgi -bind -connect ms:8080'
 ```
 
-Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O `default.map` de exemplo não tem `oga_enable_request`, então responde "OGC API requests are not enabled". Teste também com UID arbitrário (`--user 12345:0`): o entrypoint da base cria o usuário virtual via `nss_wrapper`.
+Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O `default.map` de exemplo publica a camada `countries` como coleção (ex.: `PATH_INFO=/DEFAULT/ogcapi/collections/countries/items`, `QUERY_STRING=f=json&limit=2`). Pegadinhas da OGC API Features que apareceram ao configurá-lo:
+- **Links:** sem `oga_onlineresource`, eles usam o `ows_onlineresource` e saem sem `/DEFAULT/ogcapi`.
+- **Coleções:** sem `TEMPLATE`, a camada não aparece em `collections`.
+- **Itens:** sem `gml_featureid`, a rota `items` falha com "Missing required featureid metadata".
+- **Atributos:** os itens só usam `gml_include_items`, sem cair no `ows_`; o WMS GetFeatureInfo precisa de `ows_`/`wms_include_items`. Por isso o mapfile tem os dois.
+- **Descrição:** sem `ows_abstract`, a coleção sai com o aviso "unable to set the collection description". Teste também com UID arbitrário (`--user 12345:0`): o entrypoint da base cria o usuário virtual via `nss_wrapper`.
 
 ## Estágios do Dockerfile
 
