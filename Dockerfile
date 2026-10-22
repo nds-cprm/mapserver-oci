@@ -34,6 +34,10 @@ RUN MAPSERVER_URL=https://github.com/MapServer/MapServer/releases/download/rel-$
     rm "mapserver-${MAPSERVER_VERSION}.tar.gz" && \
     MAPSERVER_DIR=${BASE_DIR}/src/mapserver-${MAPSERVER_VERSION} && \
     mkdir -p "$MAPSERVER_DIR/build" && \
+    # line-buffer MS_ERRORFILE when it is a file/FIFO (fully buffered by default), so each message is
+    # written at once and messages from concurrent workers don't interleave (see fcgi/start.sh)
+    sed -i 's|^\( *\)debuginfo->debug_mode = MS_DEBUGMODE_FILE;|&\n\1setvbuf(debuginfo->fp, NULL, _IOLBF, 0);|' "$MAPSERVER_DIR/src/mapdebug.c" && \
+    grep -q "setvbuf(debuginfo->fp, NULL, _IOLBF, 0);" "$MAPSERVER_DIR/src/mapdebug.c" && \
     # ORACLE_HOME is only read by cmake (WITH_ORACLESPATIAL); use the Instant Client shipped by the base image
     ORACLE_HOME=$(echo "${BASE_DIR}"/oracle/instantclient_*) && \
     test -d "$ORACLE_HOME" && \
@@ -130,7 +134,7 @@ RUN --mount=type=bind,from=staging,source=/tmp/runtime-packages.txt,target=/tmp/
         multiwatch \
         spawn-fcgi && \
     apt-get -y autoremove && \
-    rm -rf /var/lib/apt/lists/* 
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=staging /tmp/mapserver/ /
 COPY etc/mapserver.conf ${BASE_DIR}/etc/mapserver.conf
@@ -144,8 +148,8 @@ COPY --from=staging /tmp/mapserver-home/ /var/lib/mapserver/
 
 WORKDIR /var/lib/mapserver
 
-ENV MS_ERRORFILE=stderr \
-    MAPSERVER_FCGI_PORT=8080 \
+# MS_ERRORFILE is left unset: fcgi/start.sh then sends MapServer errors to the container log
+ENV MAPSERVER_FCGI_PORT=8080 \
     MAPSERVER_WORKERS=4 \
     HOME=/var/lib/mapserver
 
