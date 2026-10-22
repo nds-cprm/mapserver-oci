@@ -12,7 +12,7 @@ O projeto é uma camada sobre a imagem base GDAL do SGB (`docker.io/ndscprm/gdal
 
 Os dois `FROM` precisam apontar para o mesmo par de tags.
 
-- [Dockerfile](Dockerfile): três estágios, `build` → `staging` → `release`. O último é o alvo padrão.
+- [Dockerfile](Dockerfile): quatro estágios. `compile` (compilação) dá origem a `build` (imagem `-devel`) e a `staging` (descartável); a `release` usa os dois. A `release` é o alvo padrão.
 - [etc/mapserver.conf](etc/mapserver.conf): arquivo de configuração do MapServer 8, instalado em `/opt/geosgb/etc/mapserver.conf`.
 - [fcgi/start.sh](fcgi/start.sh): `CMD` da release, que sobe o `spawn-fcgi` + `multiwatch`.
 - [data/](data/): mapfile de exemplo (`default.map`, WMS "World Countries Generalized" com shapefile da Esri, `fonts.txt`, `symbols.sym`, `mapfile.d/outputformat.inc.map`), copiado para `/var/lib/mapserver/data`.
@@ -22,7 +22,7 @@ Os dois `FROM` precisam apontar para o mesmo par de tags.
 - [.github/workflows/docker-image.yml](.github/workflows/docker-image.yml): CI, que só roda manualmente (`workflow_dispatch`). Gera imagens **multiplataforma (amd64 e arm64)** em runners nativos, sem QEMU, no padrão da Docker de build por digest + merge.
   1. **Job `build`**, uma matriz por arquitetura (`amd64` em `ubuntu-22.04`, `arm64` em `ubuntu-24.04-arm`):
      - faz build com `platforms: linux/<arch>`, `pull: true` e cache GHA com escopo por arquitetura (`scope=<arch>`, para um job não sobrescrever o cache do outro);
-     - faz build primeiro do alvo `build` (devel) e depois do `release`, que reaproveita o estágio `build` do cache;
+     - faz build primeiro do alvo `build` (devel) e depois do `release`, que reaproveita do cache o estágio `compile`;
      - publica sem tag (`push-by-digest=true`) e envia os digests como artifact `digests-<arch>` (`devel/` e `release/`).
   2. **Job `merge`**:
      - lê o `ARG MAPSERVER_VERSION` do Dockerfile com `sed`; o passo falha se não encontrar;
@@ -37,7 +37,7 @@ Os dois `FROM` precisam apontar para o mesmo par de tags.
 
 ```bash
 docker build -t ndscprm/mapserver:8.6.6 .                     # release (~645 MB: base GDAL ~625 MB + MapServer)
-docker build --target build -t ndscprm/mapserver:8.6.6-devel . # build (~2,7 GB, toolchain + fontes)
+docker build --target build -t ndscprm/mapserver:8.6.6-devel . # devel (~2,7 GB, toolchain + fontes + FastCGI)
 docker run --rm ndscprm/mapserver:8.6.6 mapserv -v             # deve listar SUPPORTS=FASTCGI e INPUT=ORACLESPATIAL
 ```
 
@@ -64,7 +64,7 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
 
 `ARG` globais: `GDAL_VERSION=3.12.4`, `PYTHON_VERSION=3.12`, `BASE_DIR=/opt/geosgb`, `MAPSERVER_VERSION=8.6.6` e `MAPSERVER_SHA256`. `GDAL_VERSION` e `PYTHON_VERSION` montam as duas tags da base.
 
-### `build` (`ndscprm/gdal:${GDAL_VERSION}-py${PYTHON_VERSION}-devel`)
+### `compile` (`ndscprm/gdal:${GDAL_VERSION}-py${PYTHON_VERSION}-devel`)
 - apt: `libfreetype-dev` e `libfcgi-dev`. Os demais headers (libpng, libjpeg, libpq, libxml2, PROJ, GEOS) já vêm da base.
 - Download do MapServer:
   - baixa da release do GitHub (tag `rel-X-Y-Z`, derivada com `${MAPSERVER_VERSION//./-}`, por isso o `RUN` usa bash);
@@ -74,14 +74,23 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
   - é descoberta com `echo ${BASE_DIR}/oracle/instantclient_*` (o build falha se não for diretório);
   - é passada só para o `cmake`, que é o único lugar onde é lida (`FindORACLE.cmake`). Não existe `ENV ORACLE_HOME`.
 - Compilação:
-  - CMake `Release` num subshell `( cd build && ... )`, com instalação em `${BASE_DIR}`;
+  - CMake `RelWithDebInfo` com `CMAKE_{C,CXX}_FLAGS_RELWITHDEBINFO="-O3 -g -DNDEBUG"`, num subshell `( cd build && ... )`, com instalação em `${BASE_DIR}`. Como na base GDAL, é a otimização do `Release` com símbolos de debug: o padrão do `RelWithDebInfo` seria `-O2`. Os símbolos ficam na `-devel` (`libmapserver` com cerca de 29 MB) e o `staging` os remove da release (cerca de 4 MB);
   - o `install_manifest.txt` é copiado para `${BASE_DIR}/share/mapserver/install_manifest.txt` (o `staging` depende dele); depois vêm `rm -rf build/` e `ldconfig`;
   - `-DMAPSERVER_CONFIG_FILE=${BASE_DIR}/etc/mapserver.conf` é obrigatório: sem ele, o `GNUInstallDirs` compila um caminho em `/etc/opt/...` (prefixo em `/opt`) e todo request falha com `msLoadConfig(): Unable to access file`;
   - fica **sem** cURL, Cairo/SVG-Cairo, HarfBuzz, FriBiDi, GIF, SOS, Protobuf-c e clientes WMS/WFS, e **com** libxml2 e Oracle Spatial.
 
-### `staging` (descartável, `FROM build`)
+### `build` (imagem `-devel`, `FROM compile`)
+- Acrescenta à compilação o mesmo ambiente FastCGI da release, para rodar e depurar o MapServer na imagem de desenvolvimento:
+  - apt: `fonts-liberation`, `multiwatch` e `spawn-fcgi`;
+  - `etc/mapserver.conf` → `${BASE_DIR}/etc/mapserver.conf`, `fcgi/start.sh` → `/start.sh` e `data/` → `/var/lib/mapserver/data`;
+  - `ENV MAPSERVER_FCGI_PORT=8080` e `MAPSERVER_WORKERS=1` (um worker só facilita o `gdb -p`) e `EXPOSE 8080`.
+- Não muda `CMD`, `WORKDIR` nem `HOME` herdados da base (`CMD ["python3"]`), para não alterar o comportamento de quem usa a `-devel` como base. Para subir o FastCGI: `docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined ... ndscprm/mapserver:<versão>-devel /start.sh`.
+- Ajusta os modos de `/var/lib/mapserver`: diretórios `775` e arquivos `664`, sem bit de execução e com escrita para o grupo 0. Assim os modos não dependem do `umask` do checkout (no CI, `644`/`755`). A release copia `/var/lib/mapserver` daqui.
+- Fica separado do `compile` para que mudanças no `start.sh`, na configuração ou nos dados não refaçam o `staging` (extração e `ldd`).
+
+### `staging` (descartável, `FROM compile`)
 - Copia **só os arquivos do MapServer** para `/tmp/mapserver`, com os caminhos absolutos preservados: `tar` com `--files-from` lendo o `install_manifest.txt` e `--transform` para mudar o destino. Fica tudo que está no manifesto, como `bin/mapserv` e utilitários, `lib/libmapserver.so*`, `share/mapserver/ogcapi` e `etc/mapserver-sample.conf`. O GDAL e o Oracle não são copiados, porque já estão na release da base.
-- Remove `include`, `lib/pkgconfig` e `share/mapserver/cmake`, e faz `strip --strip-debug` nos ELF.
+- Remove `include`, `lib/pkgconfig` e `share/mapserver/cmake`, e faz `strip --strip-debug` nos ELF, o que tira os símbolos de debug do `RelWithDebInfo`.
 - Gera `/tmp/runtime-packages.txt`:
   1. roda `ldd` nos ELF do MapServer;
   2. resolve os caminhos com `realpath`, descartando o que está em `${BASE_DIR}`;
@@ -89,7 +98,6 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
 - O `ldd` também lista as dependências indiretas (via GDAL), então a lista é longa, mas o `apt` só instala o que falta. Hoje isso é `libfcgi0t64`, `libfreetype6` e `libpcre2-posix3`.
 - O build **falha** se algum `ldd` der `not found` ou se uma biblioteca não pertencer a nenhum pacote (ex.: algo em `/usr/local`).
 - Ao adicionar uma dependência no `build`, não é preciso mexer na release.
-- Prepara os dados de exemplo em `/tmp/mapserver-home/data`, com modos determinísticos: diretórios `775` e arquivos `664`. Assim os modos não dependem do `umask` do checkout (no CI, `644`/`755`), e o `COPY --chmod` não é usado porque daria o mesmo modo a arquivos e diretórios. A cópia é do diretório **pai**: o `COPY` de um diretório copia só o conteúdo e cria o destino com `755`, então copiar o pai faz o próprio `data/` manter o modo. O ajuste fica no `staging`, que é descartável, para não duplicar os dados em mais uma camada da release.
 
 ### `release` (`ndscprm/gdal:${GDAL_VERSION}-py${PYTHON_VERSION}`)
 - **Herdado da base**:
@@ -103,7 +111,7 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
   2. `RUN` do apt, terminando com `ldconfig`, que assim registra o `libmapserver` no cache do `ld.so` (os ELF do MapServer também têm `RUNPATH=/opt/geosgb/lib`);
   3. `etc/mapserver.conf` e `fcgi/start.sh` → `/start.sh` (`--chmod=755`);
   4. `install -d -m 775 /var/lib/mapserver`. O caminho é fixo, porque também está escrito no `start.sh`, no `mapserver.conf` e no `default.map`. O diretório precisa existir antes do `COPY` seguinte: se o `COPY` o criasse, ele nasceria com `755`, porque o `--chmod` só vale para o conteúdo copiado;
-  5. `COPY --from=staging /tmp/mapserver-home/ /var/lib/mapserver/`: traz o `data/` com os modos ajustados no `staging` (dono root, grupo 0 com escrita).
+  5. `COPY --from=build /var/lib/mapserver/ /var/lib/mapserver/`: traz o `data/` com os modos ajustados no `build` (dono root, grupo 0 com escrita). A cópia é do diretório **pai**: o `COPY` de um diretório copia só o conteúdo e cria o destino com `755`, então copiar o pai faz o próprio `data/` manter o modo. O `COPY --chmod` não é usado porque daria o mesmo modo a arquivos e diretórios.
   - Esses arquivos ficam depois do apt para que mudá-los não invalide o cache dos pacotes. O `RUN` do apt já é refeito quando o `staging` muda, por causa do bind mount.
 - **Usuário**: não há usuário próprio nem `USER`; o padrão é **root**, herdado da base.
   - Com UID arbitrário (`--user <uid>:0`, OpenShift), o `nss_wrapper` da base cria o usuário virtual `sgb`.
@@ -168,12 +176,12 @@ Fatos verificados nas tags `3.12.4-py3.12-devel` e `3.12.4` (release do mesmo bu
 - Só o GDAL é compilado; PROJ 9.6 e GEOS 3.13 vêm do Debian.
 - O GDAL tem os drivers OCI, Arrow/Parquet, PostGIS, GPKG, OpenFileGDB, KML, Elasticsearch e WMS/WFS/WCS/OGC API, mais os drivers núcleo (Shapefile etc.).
 - Bibliotecas sem RPATH: `/opt/geosgb/lib` e o diretório do Oracle estão em `/etc/ld.so.conf.d/`. O `mapserv` tem `RUNPATH=/opt/geosgb/lib`.
-- Para usar o `gdb` no estágio `build`: `docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined ...`.
+- Para usar o `gdb` na imagem `-devel`: `docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined ...`. Com os símbolos do `RelWithDebInfo` e o código-fonte em `${BASE_DIR}/src`, o backtrace mostra arquivo e linha (ex.: `main (...) at .../src/apps/mapserv.c:276`). Com `-O3`, algumas variáveis aparecem como `<optimized out>`.
 
 ## Convenções
 
 - Versões como `ARG` globais no topo, re-declarados no estágio que os usa.
 - Cada `RUN` com apt faz `update`, `install --no-install-recommends --no-install-suggests`, `autoremove` e `rm -rf /var/lib/apt/lists/*`.
-- `SHELL` com `bash -o pipefail` em `build` e `staging`, voltando para `/bin/sh -c` no fim de cada um.
+- `SHELL` com `bash -o pipefail` em `compile` e `staging`, voltando para `/bin/sh -c` no fim de cada um.
 - Todo download externo é verificado contra um SHA256 fixado no Dockerfile.
 - Comentários no Dockerfile em inglês; documentação em português.

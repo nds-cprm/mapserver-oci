@@ -106,6 +106,16 @@ São publicadas duas tags por versão, como na imagem base GDAL:
 - `ndscprm/mapserver:<versão>`: imagem final;
 - `ndscprm/mapserver:<versão>-devel`: imagem de desenvolvimento, para depurar ou compilar código que dependa do MapServer.
 
+A imagem `-devel` também roda o MapServer como FastCGI, com o mesmo `start.sh`, a mesma configuração e os mesmos dados de exemplo, mas com 1 worker por padrão. O comando padrão continua `python3`, então é preciso passar `/start.sh`:
+
+```bash
+docker run -d --name mapserver-devel -p 8080:8080 \
+  --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
+  docker.io/ndscprm/mapserver:8.6.6-devel /start.sh
+# depurar o worker com gdb
+docker exec -it mapserver-devel sh -c 'gdb -p $(pgrep -f "^/opt/geosgb/bin/mapserv")'
+```
+
 As duas tags são multiplataforma (`linux/amd64` e `linux/arm64`). O Docker escolhe sozinho a variante da máquina. Para construir uma arquitetura específica localmente, use `docker buildx build --platform linux/arm64 ...`; para isso, a imagem base também precisa existir nessa arquitetura.
 
 ```bash

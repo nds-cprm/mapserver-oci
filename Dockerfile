@@ -8,7 +8,7 @@ ARG MAPSERVER_VERSION=8.6.6
 ARG MAPSERVER_SHA256=e908e76b65541042042e9c5e4ae16a131f064cf6d3c76e9542c89b25158968c9
 
 
-FROM docker.io/ndscprm/gdal:${GDAL_VERSION}-py${PYTHON_VERSION}-devel AS build
+FROM docker.io/ndscprm/gdal:${GDAL_VERSION}-py${PYTHON_VERSION}-devel AS compile
 
 SHELL [ "/bin/bash", "-o", "pipefail", "-c" ]
 
@@ -43,7 +43,11 @@ RUN MAPSERVER_URL=https://github.com/MapServer/MapServer/releases/download/rel-$
     test -d "$ORACLE_HOME" && \
     ( cd "$MAPSERVER_DIR/build" && \
     ORACLE_HOME="$ORACLE_HOME" cmake \
-        -DCMAKE_BUILD_TYPE=Release \
+        # debug symbols for the -devel image, with Release optimization (RelWithDebInfo defaults to -O2);
+        # the staging stage strips them from the release
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_C_FLAGS_RELWITHDEBINFO="-O3 -g -DNDEBUG" \
+        -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g -DNDEBUG" \
         -DCMAKE_INSTALL_PREFIX=${BASE_DIR} \
         # GNUInstallDirs would default to /etc/opt/... for an /opt prefix
         -DMAPSERVER_CONFIG_FILE=${BASE_DIR}/etc/mapserver.conf \
@@ -70,9 +74,40 @@ RUN MAPSERVER_URL=https://github.com/MapServer/MapServer/releases/download/rel-$
 SHELL [ "/bin/sh", "-c" ]
 
 
+# Development image (-devel tag): toolchain, headers, sources and debug tools from the GDAL -devel base, plus
+# the same FastCGI setup as the release, so MapServer can be run and debugged here (docker run ... /start.sh)
+FROM compile AS build
+
+ARG BASE_DIR
+
+RUN apt-get -y update && \
+    apt-get install -y --no-install-recommends --no-install-suggests \
+        # used by data/fonts.txt
+        fonts-liberation \
+        multiwatch \
+        spawn-fcgi && \
+    apt-get -y autoremove && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY etc/mapserver.conf ${BASE_DIR}/etc/mapserver.conf
+COPY --chmod=755 fcgi/start.sh /start.sh
+COPY data /var/lib/mapserver/data
+
+# Sample data with deterministic modes (group-writable, nothing executable), regardless of the checkout umask;
+# the release copies /var/lib/mapserver from here
+RUN find /var/lib/mapserver -type d -exec chmod 775 {} + && \
+    find /var/lib/mapserver -type f -exec chmod 664 {} +
+
+# a single worker by default, easier to follow with gdb (gdb -p needs --cap-add=SYS_PTRACE)
+ENV MAPSERVER_FCGI_PORT=8080 \
+    MAPSERVER_WORKERS=1
+
+EXPOSE 8080
+
+
 # Throwaway stage: MapServer files only (GDAL and Oracle come with the release base image),
 # stripped, plus the Debian packages they link against
-FROM build AS staging
+FROM compile AS staging
 
 SHELL [ "/bin/bash", "-o", "pipefail", "-c" ]
 
@@ -102,12 +137,6 @@ RUN find /tmp/mapserver -type f \
         dpkg -S "$lib" 2>/dev/null || dpkg -S "${lib#/usr}" || { echo "No package owns $lib" >&2; exit 1; }; \
     done < /tmp/runtime-libs.txt | sed 's/: .*//' | sort -u > /tmp/runtime-packages.txt && \
     cat /tmp/runtime-packages.txt
-
-# Sample data with deterministic modes (group-writable, nothing executable), regardless of the checkout umask
-# (copied as /tmp/mapserver-home/data so that data/ itself is part of the content and keeps its mode)
-COPY data /tmp/mapserver-home/data
-RUN find /tmp/mapserver-home -type d -exec chmod 775 {} + && \
-    find /tmp/mapserver-home -type f -exec chmod 664 {} +
 
 SHELL [ "/bin/sh", "-c" ]
 
@@ -144,7 +173,8 @@ COPY --chmod=755 fcgi/start.sh /start.sh
 RUN ldconfig && \
     install -d -m 775 /var/lib/mapserver
 
-COPY --from=staging /tmp/mapserver-home/ /var/lib/mapserver/
+# (copying the parent keeps the mode of data/ itself; COPY would create a 755 destination)
+COPY --from=build /var/lib/mapserver/ /var/lib/mapserver/
 
 WORKDIR /var/lib/mapserver
 
