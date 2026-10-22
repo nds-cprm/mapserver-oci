@@ -19,6 +19,8 @@ MAP
 			ows_title			"World Countries Generalized"
 			ows_onlineresource	"/mapserver"
 			wms_enable_request	"*"
+			oga_enable_request	"*"
+			oga_onlineresource	"/mapserver/DEFAULT/ogcapi"
 			wms_srs             "EPSG:3857 EPSG:4326 EPSG:4674"
 			# Ref: https://hub.arcgis.com/datasets/esri::world-countries-generalized/about
 		END
@@ -30,11 +32,19 @@ MAP
 		TYPE POLYGON
 		DATA "World_Countries_Generalized.shp"	
 		LABELITEM "COUNTRY"
+		# queryable layer, required to be published as an OGC API Features collection
+		TEMPLATE "ttt"
 		PROJECTION
 			"init=epsg:4326"
 		END
 		METADATA
 			wms_title	"World Countries Generalized"
+			ows_abstract	"Generalized boundaries of the countries of the world (Esri)"
+			# attributes returned by WMS GetFeatureInfo (ows_) and by OGC API Features items (gml_ only)
+			ows_include_items	"all"
+			gml_include_items	"all"
+			# unique id of each feature, required by OGC API Features items
+			gml_featureid	"FID"
 		END
 		CLASS
 			NAME "Countries"
