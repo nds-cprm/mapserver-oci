@@ -20,7 +20,7 @@ Os dois `FROM` precisam apontar para o mesmo par de tags.
 - [README.md](README.md): documentação para quem usa a imagem (execução, variáveis, configuração, logs, build). Mantenha em sincronia com o Dockerfile.
 
 - [.github/workflows/docker-image.yml](.github/workflows/docker-image.yml): CI, que só roda manualmente (`workflow_dispatch`). Gera imagens **multiplataforma (amd64 e arm64)** em runners nativos, sem QEMU, no padrão da Docker de build por digest + merge.
-  1. **Job `build`**, uma matriz por arquitetura (`amd64` em `ubuntu-22.04`, `arm64` em `ubuntu-24.04-arm`):
+  1. **Job `build`**, uma matriz por arquitetura (`amd64` em `ubuntu-24.04`, `arm64` em `ubuntu-24.04-arm`):
      - faz build com `platforms: linux/<arch>`, `pull: true` e cache GHA com escopo por arquitetura (`scope=<arch>`, para um job não sobrescrever o cache do outro);
      - faz build primeiro do alvo `build` (devel) e depois do `release`, que reaproveita do cache o estágio `compile`;
      - publica sem tag (`push-by-digest=true`) e envia os digests como artifact `digests-<arch>` (`devel/` e `release/`).
@@ -107,12 +107,13 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
   - O venv Python também vem junto (não é usado pelo MapServer).
 - **apt**: instala os pacotes do `staging` (por bind mount) e os que não são linkados: `fonts-liberation` (usado por `data/fonts.txt`), `multiwatch` e `spawn-fcgi`.
 - **Ordem**:
-  1. `COPY --from=staging /tmp/mapserver/ /`;
-  2. `RUN` do apt, terminando com `ldconfig`, que assim registra o `libmapserver` no cache do `ld.so` (os ELF do MapServer também têm `RUNPATH=/opt/geosgb/lib`);
+  1. `RUN` do apt;
+  2. `COPY --from=staging /tmp/mapserver/ /`;
   3. `etc/mapserver.conf` e `fcgi/start.sh` → `/start.sh` (`--chmod=755`);
-  4. `install -d -m 775 /var/lib/mapserver`. O caminho é fixo, porque também está escrito no `start.sh`, no `mapserver.conf` e no `default.map`. O diretório precisa existir antes do `COPY` seguinte: se o `COPY` o criasse, ele nasceria com `755`, porque o `--chmod` só vale para o conteúdo copiado;
+  4. `RUN` com `ldconfig`, que registra o `libmapserver` no cache do `ld.so` (os ELF do MapServer também têm `RUNPATH=/opt/geosgb/lib`), e `install -d -m 775 /var/lib/mapserver`. O caminho é fixo, porque também está escrito no `start.sh`, no `mapserver.conf` e no `default.map`. O diretório precisa existir antes do `COPY` seguinte: se o `COPY` o criasse, ele nasceria com `755`, porque o `--chmod` só vale para o conteúdo copiado;
   5. `COPY --from=build /var/lib/mapserver/ /var/lib/mapserver/`: traz o `data/` com os modos ajustados no `build` (dono root, grupo 0 com escrita). A cópia é do diretório **pai**: o `COPY` de um diretório copia só o conteúdo e cria o destino com `755`, então copiar o pai faz o próprio `data/` manter o modo. O `COPY --chmod` não é usado porque daria o mesmo modo a arquivos e diretórios.
-  - Esses arquivos ficam depois do apt para que mudá-los não invalide o cache dos pacotes. O `RUN` do apt já é refeito quando o `staging` muda, por causa do bind mount.
+  6. `WORKDIR /var/lib/mapserver`.
+  - O MapServer e esses arquivos ficam depois do apt para que mudá-los não invalide o cache dos pacotes. O `RUN` do apt já é refeito quando o `staging` muda, por causa do bind mount.
 - **Usuário**: não há usuário próprio nem `USER`; o padrão é **root**, herdado da base.
   - Com UID arbitrário (`--user <uid>:0`, OpenShift), o `nss_wrapper` da base cria o usuário virtual `sgb`.
   - Esse usuário roda com **GID 0** (padrão do `docker run --user <uid>`, do Kubernetes sem `runAsGroup` e do OpenShift). Por causa do `g=u`, ele pode escrever em `/var/lib/mapserver` e o `HOME` continua sendo `/var/lib/mapserver`.
