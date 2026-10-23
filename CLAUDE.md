@@ -27,8 +27,12 @@ Os dois `FROM` precisam apontar para o mesmo par de tags.
   2. **Job `merge`**:
      - lê o `ARG MAPSERVER_VERSION` do Dockerfile com `sed`; o passo falha se não encontrar;
      - cria os índices multiplataforma com `docker buildx imagetools create`, seguindo a política de tags da base GDAL: `ndscprm/mapserver:<MAPSERVER_VERSION>-devel` e `ndscprm/mapserver:<MAPSERVER_VERSION>`;
-     - roda o Docker Scout (CVEs) só na release e envia o SARIF para o GitHub.
-  - **Depende da base multiplataforma:** as tags `ndscprm/gdal:<GDAL>-py<PY>-devel` e `ndscprm/gdal:<GDAL>-py<PY>` precisam ter variantes amd64 e arm64. Enquanto não tiverem, o job arm64 falha no `FROM`. Confira com `docker buildx imagetools inspect docker.io/ndscprm/gdal:<tag>`.
+     - expõe a tag da release como output (`release`) para o job `scan`.
+  3. **Job `scan`**, uma matriz por arquitetura (`amd64` e `arm64`, ambos em `ubuntu-24.04`):
+     - roda o Docker Scout (CVEs) só na release, com `image: registry://<tag>` e `platform: linux/<arch>`. O Scout analisa uma única plataforma por execução; sem `platform`, ele analisaria só a variante do runner (amd64). Como o Scout lê a imagem do registry sem executá-la, o arm64 não precisa de runner arm;
+     - envia o SARIF para o GitHub com `category: docker-scout-<arch>`: sem categorias diferentes, um upload substituiria os resultados do outro;
+     - usa `fail-fast: false`, para a falha de uma arquitetura não cancelar o scan da outra.
+  - **Depende da base multiplataforma:** as tags `ndscprm/gdal:<GDAL>-py<PY>-devel` e `ndscprm/gdal:<GDAL>-py<PY>` precisam ter variantes amd64 e arm64 (a `3.12.4-py3.12` e a `3.12.4-py3.12-devel` já têm). Sem elas, o job arm64 falha no `FROM`. Confira com `docker buildx imagetools inspect docker.io/ndscprm/gdal:<tag>`.
   - **Dockerfile independente de arquitetura:** não deve ter nada preso a uma arquitetura. Hoje não tem: o Oracle é encontrado por glob `instantclient_*`, os pacotes vêm do `ldd` + `dpkg -S` e o `libaio` vem da base.
   - Não há tag de versão escrita no workflow: ao mudar o `MAPSERVER_VERSION`, a tag acompanha. Mantenha o `ARG MAPSERVER_VERSION=` numa linha própria, no começo da linha, para o `sed` encontrar.
   - Validar alterações com `actionlint`, por exemplo `docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.7 .github/workflows/docker-image.yml`.
