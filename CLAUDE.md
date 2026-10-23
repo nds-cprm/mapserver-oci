@@ -28,10 +28,11 @@ Os dois `FROM` precisam apontar para o mesmo par de tags.
      - baixa o artifact `digests-<arch>` e roda o Docker Scout (CVEs) só no digest da release (`image: registry://ndscprm/mapserver@sha256:<digest>`). O digest é de um manifesto de uma plataforma só, então não precisa de `platform`. Como o Scout lê a imagem do registry sem executá-la, o arm64 não precisa de runner arm;
      - envia o SARIF para o GitHub com `category: docker-scout-<arch>`: sem categorias diferentes, um upload substituiria os resultados do outro;
      - usa `fail-fast: false`, para a falha de uma arquitetura não cancelar o scan da outra.
-     - O scan é só informativo: CVEs não fazem o job falhar (não há `exit-code`). Se o job falhar por outro motivo, o `merge` não roda e nenhuma tag é criada.
-  3. **Job `merge`** (`needs: scan`):
+     - **Decisão do projeto:** vulnerabilidades não bloqueiam a publicação; ficam no Code Scanning (SARIF) e no resumo do job. Não use `exit-code` no Scout. Já uma **falha do scan** (ex.: erro do Scout, do login ou do upload do SARIF) bloqueia: nenhuma imagem é publicada sem ter sido analisada.
+  3. **Job `merge`** (`needs: scan`), que só roda se os dois scans tiverem sucesso:
      - lê o `ARG MAPSERVER_VERSION` do Dockerfile com `sed`; o passo falha se não encontrar;
      - cria os índices multiplataforma com `docker buildx imagetools create`, seguindo a política de tags da base GDAL: `ndscprm/mapserver:<MAPSERVER_VERSION>-devel` e `ndscprm/mapserver:<MAPSERVER_VERSION>`.
+  - **Permissões do `GITHUB_TOKEN`:** `contents: read` no workflow. Só o `scan` tem mais, porque o `upload-sarif` exige `security-events: write`, e em repositório privado também `actions: read` e `contents: read`. As permissões de um job substituem as do workflow, por isso o `scan` repete `contents: read`. Artifacts e o cache GHA usam o token de runtime, não o `GITHUB_TOKEN`, e não precisam de permissão. O push vai para o Docker Hub com os secrets e também não depende do token.
   - **Depende da base multiplataforma:** as tags `ndscprm/gdal:<GDAL>-py<PY>-devel` e `ndscprm/gdal:<GDAL>-py<PY>` precisam ter variantes amd64 e arm64 (a `3.12.4-py3.12` e a `3.12.4-py3.12-devel` já têm). Sem elas, o job arm64 falha no `FROM`. Confira com `docker buildx imagetools inspect docker.io/ndscprm/gdal:<tag>`.
   - **Dockerfile independente de arquitetura:** não deve ter nada preso a uma arquitetura. Hoje não tem: o Oracle é encontrado por glob `instantclient_*`, os pacotes vêm do `ldd` + `dpkg -S` e o `libaio` vem da base.
   - Não há tag de versão escrita no workflow: ao mudar o `MAPSERVER_VERSION`, a tag acompanha. Mantenha o `ARG MAPSERVER_VERSION=` numa linha própria, no começo da linha, para o `sed` encontrar.

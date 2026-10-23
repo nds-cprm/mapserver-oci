@@ -19,10 +19,8 @@ Pendências de segurança e boas práticas levantadas na revisão do projeto.
 
 ## Prioridade média (CI e cadeia de suprimentos)
 
-- [ ] **Workflow sem `permissions:`.** Declarar `permissions: contents: read` no topo e `security-events: write` só no job `scan` (exigido pelo `upload-sarif`).
 - [ ] **Actions fixadas por tag mutável** (`@v7`, `@v4`, `@v1` etc.) em jobs que recebem o `DOCKERHUB_TOKEN`. Fixar por SHA de commit, com a versão num comentário, e manter atualizadas com Dependabot (`package-ecosystem: github-actions`).
 - [ ] **Sem SBOM e com proveniência mínima.** Adicionar `sbom: true` e `provenance: mode=max` nos builds; o `imagetools create` preserva as atestações. Depois, avaliar a assinatura com `cosign` (keyless, via OIDC).
-- [ ] **Scan não bloqueia a publicação.** O job `scan` já roda nos digests antes do `merge`, mas não falha com CVE. Avaliar `only-severities: critical,high` com `exit-code: true` (a base Debian pode ter CVEs altas sem correção, o que travaria toda publicação), ou registrar a decisão de manter o scan só informativo.
 - [ ] **Bases por tag, não por digest.** Os `FROM` usam tag e o build usa `pull: true`, então o mesmo commit pode gerar imagens diferentes. Avaliar a fixação por `@sha256:`, atualizada por Renovate ou Dependabot.
 
 ## Prioridade baixa (boas práticas)

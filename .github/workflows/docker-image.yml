@@ -12,6 +12,11 @@ on:
 env:
   IMAGE: ndscprm/mapserver
 
+# Least privilege for GITHUB_TOKEN; jobs that need more declare it. Artifacts and the GHA build
+# cache use the runtime token, not GITHUB_TOKEN, so they need no permission here.
+permissions:
+  contents: read
+
 jobs:
   # One job per architecture on native runners. Images are pushed by digest only (no tag);
   # the merge job assembles the multi-platform tags from those digests.
@@ -92,6 +97,12 @@ jobs:
       matrix:
         arch: [ amd64, arm64 ]
     runs-on: ubuntu-24.04
+    # job-level permissions replace the workflow ones: upload-sarif needs security-events,
+    # plus actions and contents in private repositories
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     steps:
     - name: Download digests
       uses: actions/download-artifact@v8
@@ -130,7 +141,8 @@ jobs:
         sarif_file: sarif-${{ matrix.arch }}.output.json
         category: docker-scout-${{ matrix.arch }}
 
-  # Creates the multi-platform tags (<MAPSERVER_VERSION> and <MAPSERVER_VERSION>-devel) after both scans
+  # Creates the multi-platform tags (<MAPSERVER_VERSION> and <MAPSERVER_VERSION>-devel) after both scans.
+  # Vulnerabilities are only reported (no exit-code in Scout), but a failed scan stops the publication.
   merge:
     needs: scan
     runs-on: ubuntu-24.04
