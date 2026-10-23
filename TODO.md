@@ -28,5 +28,18 @@ Pendências de segurança e boas práticas levantadas na revisão do projeto.
 - [ ] **Sistema de arquivos somente leitura.** Testar e documentar `--read-only --tmpfs /tmp` (no Kubernetes, `readOnlyRootFilesystem: true`). O `start.sh` só escreve em `/tmp`; falta confirmar o `nss_wrapper`.
 - [ ] **Healthcheck.** Documentar uma probe `tcpSocket` na 8080 para Kubernetes. Ela não detecta worker travado.
 - [ ] **Mapfile de exemplo na release.** O `default.map` é publicado como `DEFAULT`, com `wms_enable_request "*"` e `include_items "all"`. Documentar como remover o alias ou levar o exemplo só para a `-devel`.
-- [ ] **Superfície herdada da base.** A release traz Python, venv e `apt`, que o MapServer não usa e que aparecem no relatório do Scout. Hoje isso é aceito, por decisão de herdar a base; reavaliar se a base ganhar uma variante enxuta.
+- [ ] **Python herdado da base na release.** A release traz o venv e o CPython da base, que o MapServer não usa (não há Python mapscript) e que aparecem no relatório do Scout.
+  - **Em espera:** depende de decidir se o Python MapScript entra nesta imagem. Se entrar, a release precisa do Python e do venv (as opções abaixo deixam de valer, mas ainda daria para tirar `pip`, `setuptools` e `wheel`). Se não entrar, seguir a recomendação abaixo.
+  - **Verificado em `ndscprm/gdal:3.12.4-py3.12`:**
+    - nenhuma biblioteca em `/opt/geosgb/lib` ou `/usr/lib`, nem binário em `/opt/geosgb/bin`, é linkado ao `libpython`;
+    - o entrypoint e o `10-enable-nss-wrapper.sh` são `sh`;
+    - os utilitários Python do GDAL (`gdal_calc.py`, `gdal2tiles.py`, `ogrmerge.py` etc.) ficam só em `/opt/geosgb/venv/bin`, e o `/opt/geosgb/bin` tem só binários nativos;
+    - o venv ocupa cerca de 99 MB (numpy, pip, setuptools, wheel e os bindings `osgeo`); o CPython em `/usr/local` (de `python:3.12-slim-trixie`), cerca de 34 MB mais os executáveis, e nada disso é pacote do `dpkg`.
+  - **Opções:**
+    1. **Apagar na release:** `rm -rf` do venv e do Python em `/usr/local`, redefinindo `PATH` e esvaziando `VIRTUAL_ENV`. Tira a superfície de ataque do sistema de arquivos final, mas **não reduz o tamanho**, porque as camadas da base continuam lá. É uma mudança pequena e mantém a herança da base.
+    2. **Release a partir de `debian:trixie-slim`,** copiando da base só `/opt/geosgb/{bin,lib,share,oracle}`, `ld.so.conf.d`, o entrypoint, o `nss_wrapper` e o symlink do `libaio`, e estendendo o `ldd` + `dpkg -S` do `staging` às bibliotecas do GDAL. Reduz uns 130 a 150 MB, mas acopla esta imagem a detalhes internos da base.
+    3. **Variante da base sem Python** (ex.: `ndscprm/gdal:3.12.4` ou `-slim`, sobre `debian:trixie-slim`), publicada pelo repositório da base; aqui só muda o `FROM` da release. É a mais limpa e beneficia outras imagens, mas depende de mudar o outro repositório.
+  - **Recomendação:** opção 3; enquanto ela não sai, a opção 1.
+  - **Efeito colateral:** quem usa a release para rodar `gdal_calc.py` ou `import osgeo` perde isso. Os utilitários nativos e a `-devel` continuam completos.
+  - **Testes:** `mapserv -v`, uma requisição FastCGI e `--user 12345:0`.
 - [ ] **Sem `.dockerignore`.** Os `COPY` são específicos e nada vaza para a imagem, mas o `.git` vai junto no contexto de build.
