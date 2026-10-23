@@ -24,14 +24,14 @@ Os dois `FROM` precisam apontar para o mesmo par de tags.
      - faz build com `platforms: linux/<arch>`, `pull: true` e cache GHA com escopo por arquitetura (`scope=<arch>`, para um job não sobrescrever o cache do outro);
      - faz build primeiro do alvo `build` (devel) e depois do `release`, que reaproveita do cache o estágio `compile`;
      - publica sem tag (`push-by-digest=true`) e envia os digests como artifact `digests-<arch>` (`devel/` e `release/`).
-  2. **Job `merge`**:
-     - lê o `ARG MAPSERVER_VERSION` do Dockerfile com `sed`; o passo falha se não encontrar;
-     - cria os índices multiplataforma com `docker buildx imagetools create`, seguindo a política de tags da base GDAL: `ndscprm/mapserver:<MAPSERVER_VERSION>-devel` e `ndscprm/mapserver:<MAPSERVER_VERSION>`;
-     - expõe a tag da release como output (`release`) para o job `scan`.
-  3. **Job `scan`**, uma matriz por arquitetura (`amd64` e `arm64`, ambos em `ubuntu-24.04`):
-     - roda o Docker Scout (CVEs) só na release, com `image: registry://<tag>` e `platform: linux/<arch>`. O Scout analisa uma única plataforma por execução; sem `platform`, ele analisaria só a variante do runner (amd64). Como o Scout lê a imagem do registry sem executá-la, o arm64 não precisa de runner arm;
+  2. **Job `scan`**, uma matriz por arquitetura (`amd64` e `arm64`, ambos em `ubuntu-24.04`), que roda **antes** das tags existirem:
+     - baixa o artifact `digests-<arch>` e roda o Docker Scout (CVEs) só no digest da release (`image: registry://ndscprm/mapserver@sha256:<digest>`). O digest é de um manifesto de uma plataforma só, então não precisa de `platform`. Como o Scout lê a imagem do registry sem executá-la, o arm64 não precisa de runner arm;
      - envia o SARIF para o GitHub com `category: docker-scout-<arch>`: sem categorias diferentes, um upload substituiria os resultados do outro;
      - usa `fail-fast: false`, para a falha de uma arquitetura não cancelar o scan da outra.
+     - O scan é só informativo: CVEs não fazem o job falhar (não há `exit-code`). Se o job falhar por outro motivo, o `merge` não roda e nenhuma tag é criada.
+  3. **Job `merge`** (`needs: scan`):
+     - lê o `ARG MAPSERVER_VERSION` do Dockerfile com `sed`; o passo falha se não encontrar;
+     - cria os índices multiplataforma com `docker buildx imagetools create`, seguindo a política de tags da base GDAL: `ndscprm/mapserver:<MAPSERVER_VERSION>-devel` e `ndscprm/mapserver:<MAPSERVER_VERSION>`.
   - **Depende da base multiplataforma:** as tags `ndscprm/gdal:<GDAL>-py<PY>-devel` e `ndscprm/gdal:<GDAL>-py<PY>` precisam ter variantes amd64 e arm64 (a `3.12.4-py3.12` e a `3.12.4-py3.12-devel` já têm). Sem elas, o job arm64 falha no `FROM`. Confira com `docker buildx imagetools inspect docker.io/ndscprm/gdal:<tag>`.
   - **Dockerfile independente de arquitetura:** não deve ter nada preso a uma arquitetura. Hoje não tem: o Oracle é encontrado por glob `instantclient_*`, os pacotes vêm do `ldd` + `dpkg -S` e o `libaio` vem da base.
   - Não há tag de versão escrita no workflow: ao mudar o `MAPSERVER_VERSION`, a tag acompanha. Mantenha o `ARG MAPSERVER_VERSION=` numa linha própria, no começo da linha, para o `sed` encontrar.
