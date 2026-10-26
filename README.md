@@ -11,6 +11,8 @@ A imagem é construída sobre a imagem GDAL do SGB (`docker.io/ndscprm/gdal`) e 
 - Oracle Instant Client 19 (basiclite);
 - PROJ 9.6 e GEOS 3.13 (Debian 13 "trixie").
 
+A imagem final não tem Python (base `ndscprm/gdal:<versão>-nopy`): os utilitários Python do GDAL (`gdal_calc.py`, `import osgeo` etc.) só estão na imagem `-devel`. Os utilitários nativos (`gdalinfo`, `ogr2ogr` etc.) estão nas duas.
+
 ## Execução
 
 A imagem fala **FastCGI na porta 8080**, não HTTP. Coloque na frente um servidor web ou proxy com suporte a FastCGI, apontando para `<container>:8080`.
@@ -130,11 +132,11 @@ docker build --target build -t docker.io/ndscprm/mapserver:8.6.6-devel .
 | Arg | Padrão | Descrição |
 |-----|--------|-----------|
 | `GDAL_VERSION` | `3.12.4` | Versão da imagem base `ndscprm/gdal` |
-| `PYTHON_VERSION` | `3.12` | Versão do Python da imagem base |
+| `PYTHON_VERSION` | `3.12` | Versão do Python da imagem base de compilação (`-devel`); a imagem final não tem Python |
 | `MAPSERVER_VERSION` | `8.6.6` | Versão do MapServer |
 | `MAPSERVER_SHA256` | SHA256 do `mapserver-8.6.6.tar.gz` | Atualizar junto com `MAPSERVER_VERSION` |
 
-As tags `ndscprm/gdal:<GDAL_VERSION>-py<PYTHON_VERSION>-devel` (build) e `ndscprm/gdal:<GDAL_VERSION>-py<PYTHON_VERSION>` (release) precisam existir.
+As tags `ndscprm/gdal:<GDAL_VERSION>-py<PYTHON_VERSION>-devel` (build e imagem `-devel`) e `ndscprm/gdal:<GDAL_VERSION>-nopy` (imagem final, sem Python) precisam existir.
 
 O código-fonte do MapServer é baixado da release no GitHub e verificado contra `MAPSERVER_SHA256`. Para obter o hash de uma nova versão:
 

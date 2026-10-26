@@ -6,11 +6,11 @@ Este arquivo orienta o Claude Code (claude.ai/code) ao trabalhar neste repositó
 
 Imagem de contêiner do **MapServer compilado a partir do código-fonte com suporte a Oracle Spatial (OCI)**, rodando como **servidor FastCGI**. É mantida pelo SGB/CPRM (`docker.io/ndscprm/mapserver`). Não há código de aplicação, testes nem linters.
 
-O projeto é uma camada sobre a imagem base GDAL do SGB (`docker.io/ndscprm/gdal`), que tem duas variantes do mesmo build:
-- **`<GDAL>-py<PY>-devel`**, usada para compilar;
-- **`<GDAL>-py<PY>`** (release), usada como base da imagem final.
+O projeto é uma camada sobre a imagem base GDAL do SGB (`docker.io/ndscprm/gdal`). Usa duas variantes do mesmo GDAL:
+- **`<GDAL>-py<PY>-devel`**, usada para compilar (e base da imagem `-devel` deste projeto);
+- **`<GDAL>-nopy`** (release sem Python), usada como base da imagem final. Nada na release usa Python; enquanto não for decidido se o Python MapScript entra na imagem, a compilação continua na `-py<PY>-devel` (veja o TODO).
 
-Os dois `FROM` precisam apontar para o mesmo par de tags.
+Os dois `FROM` precisam ter o mesmo `GDAL_VERSION`. Como as tags não têm data, confira que são do mesmo build do GDAL: em 2026-10-25, a `libgdal.so.38.3.12.4` da `3.12.4-nopy` era idêntica (md5) à da `3.12.4-py3.12`.
 
 - [Dockerfile](Dockerfile): quatro estágios. `compile` (compilação) dá origem a `build` (imagem `-devel`) e a `staging` (descartável); a `release` usa os dois. A `release` é o alvo padrão.
 - [etc/mapserver.conf](etc/mapserver.conf): arquivo de configuração do MapServer 8, instalado em `/opt/geosgb/etc/mapserver.conf`.
@@ -33,7 +33,7 @@ Os dois `FROM` precisam apontar para o mesmo par de tags.
      - lê o `ARG MAPSERVER_VERSION` do Dockerfile com `sed`; o passo falha se não encontrar;
      - cria os índices multiplataforma com `docker buildx imagetools create`, seguindo a política de tags da base GDAL: `ndscprm/mapserver:<MAPSERVER_VERSION>-devel` e `ndscprm/mapserver:<MAPSERVER_VERSION>`.
   - **Permissões do `GITHUB_TOKEN`:** `contents: read` no workflow. Só o `scan` tem mais, porque o `upload-sarif` exige `security-events: write`, e em repositório privado também `actions: read` e `contents: read`. As permissões de um job substituem as do workflow, por isso o `scan` repete `contents: read`. Artifacts e o cache GHA usam o token de runtime, não o `GITHUB_TOKEN`, e não precisam de permissão. O push vai para o Docker Hub com os secrets e também não depende do token.
-  - **Depende da base multiplataforma:** as tags `ndscprm/gdal:<GDAL>-py<PY>-devel` e `ndscprm/gdal:<GDAL>-py<PY>` precisam ter variantes amd64 e arm64 (a `3.12.4-py3.12` e a `3.12.4-py3.12-devel` já têm). Sem elas, o job arm64 falha no `FROM`. Confira com `docker buildx imagetools inspect docker.io/ndscprm/gdal:<tag>`.
+  - **Depende da base multiplataforma:** as tags `ndscprm/gdal:<GDAL>-py<PY>-devel` e `ndscprm/gdal:<GDAL>-nopy` precisam ter variantes amd64 e arm64 (a `3.12.4-py3.12-devel` e a `3.12.4-nopy` já têm). Sem elas, o job arm64 falha no `FROM`. Confira com `docker buildx imagetools inspect docker.io/ndscprm/gdal:<tag>`.
   - **Dockerfile independente de arquitetura:** não deve ter nada preso a uma arquitetura. Hoje não tem: o Oracle é encontrado por glob `instantclient_*`, os pacotes vêm do `ldd` + `dpkg -S` e o `libaio` vem da base.
   - Não há tag de versão escrita no workflow: ao mudar o `MAPSERVER_VERSION`, a tag acompanha. Mantenha o `ARG MAPSERVER_VERSION=` numa linha própria, no começo da linha, para o `sed` encontrar.
   - Validar alterações com `actionlint`, por exemplo `docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.7 .github/workflows/docker-image.yml`.
@@ -41,7 +41,7 @@ Os dois `FROM` precisam apontar para o mesmo par de tags.
 ## Build e teste
 
 ```bash
-docker build -t ndscprm/mapserver:8.6.6 .                     # release (~645 MB: base GDAL ~625 MB + MapServer)
+docker build -t ndscprm/mapserver:8.6.6 .                     # release (~447 MB: base GDAL -nopy ~427 MB + MapServer)
 docker build --target build -t ndscprm/mapserver:8.6.6-devel . # devel (~2,7 GB, toolchain + fontes + FastCGI)
 docker run --rm ndscprm/mapserver:8.6.6 mapserv -v             # deve listar SUPPORTS=FASTCGI e INPUT=ORACLESPATIAL
 ```
@@ -67,7 +67,7 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
 
 ## Estágios do Dockerfile
 
-`ARG` globais: `GDAL_VERSION=3.12.4`, `PYTHON_VERSION=3.12`, `BASE_DIR=/opt/geosgb`, `MAPSERVER_VERSION=8.6.6` e `MAPSERVER_SHA256`. `GDAL_VERSION` e `PYTHON_VERSION` montam as duas tags da base.
+`ARG` globais: `GDAL_VERSION=3.12.4`, `PYTHON_VERSION=3.12`, `BASE_DIR=/opt/geosgb`, `MAPSERVER_VERSION=8.6.6` e `MAPSERVER_SHA256`. `GDAL_VERSION` e `PYTHON_VERSION` montam a tag da `-devel`; a release usa só o `GDAL_VERSION` (`<GDAL>-nopy`).
 
 ### `compile` (`ndscprm/gdal:${GDAL_VERSION}-py${PYTHON_VERSION}-devel`)
 - apt: `libfreetype-dev` e `libfcgi-dev`. Os demais headers (libpng, libjpeg, libpq, libxml2, PROJ, GEOS) já vêm da base.
@@ -104,12 +104,12 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
 - O build **falha** se algum `ldd` der `not found` ou se uma biblioteca não pertencer a nenhum pacote (ex.: algo em `/usr/local`).
 - Ao adicionar uma dependência no `build`, não é preciso mexer na release.
 
-### `release` (`ndscprm/gdal:${GDAL_VERSION}-py${PYTHON_VERSION}`)
+### `release` (`ndscprm/gdal:${GDAL_VERSION}-nopy`)
 - **Herdado da base**:
-  - GDAL, Oracle basiclite, `ld.so.conf.d`, symlink `libaio.so.1`, repositório apt do Arrow e `ca-certificates`;
-  - `ENV` `PATH`, `GDAL_DATA` e `VIRTUAL_ENV`;
+  - GDAL, Oracle basiclite, `ld.so.conf.d`, symlink `libaio.so.1`, `ca-certificates` e o `nss_wrapper`;
+  - `ENV` `PATH` (sem venv) e `GDAL_DATA`;
   - `ENTRYPOINT ["/docker-entrypoint.sh"]`.
-  - O venv Python também vem junto (não é usado pelo MapServer).
+  - Não tem Python, venv nem o repositório apt do Arrow. As bibliotecas do Arrow já vêm instaladas; o `staging` (que roda na `-devel`, com o repositório) as lista, e o `apt` só registra que já estão na versão mais nova. Se uma versão nova da base exigir um pacote do Arrow que a `-nopy` não tenha, o `apt` da release falha.
 - **apt**: instala os pacotes do `staging` (por bind mount) e os que não são linkados: `fonts-liberation` (usado por `data/fonts.txt`), `multiwatch` e `spawn-fcgi`.
 - **Ordem**:
   1. `RUN` do apt;
@@ -166,11 +166,11 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
   curl -sL https://download.osgeo.org/mapserver/mapserver-8.6.6.tar.gz | sha256sum
   ```
 
-- **GDAL/Python**: só os `ARG`. As duas tags (`-devel` e release) precisam existir e ser do mesmo build da base.
+- **GDAL/Python**: só os `ARG`. As duas tags (`<GDAL>-py<PY>-devel` e `<GDAL>-nopy`) precisam existir e ser do mesmo build do GDAL.
 
 ## Imagem base (`ndscprm/gdal`)
 
-Fatos verificados nas tags `3.12.4-py3.12-devel` e `3.12.4` (release do mesmo build):
+Fatos verificados nas tags `3.12.4-py3.12-devel`, `3.12.4-py3.12` e `3.12.4-nopy`:
 
 - Base `python:3.12-trixie` / `python:3.12-slim-trixie` (**Debian 13**): os pacotes seguem a transição `t64`, e as fontes Liberation ficam em `/usr/share/fonts/truetype/liberation/` (`fonts-liberation2` virou pacote de transição).
 - `-devel`: `/opt/geosgb` com `bin`, `include`, `lib`, `share`, `src/gdal-3.12.4`, `venv` e `oracle/instantclient_19_32` (basiclite + SDK). Só ela tem headers e o SDK do Oracle.
@@ -178,6 +178,7 @@ Fatos verificados nas tags `3.12.4-py3.12-devel` e `3.12.4` (release do mesmo bu
   - `/opt/geosgb` com `bin`, `lib`, `share`, `venv` e `oracle` (sem SDK), com o GDAL sem símbolos de debug;
   - `ENTRYPOINT ["/docker-entrypoint.sh"]` (estilo Postgres: em `/docker-entrypoint.d/`, `*.sh` com `+x` é executado e sem `+x` é carregado com `.`) e `CMD ["python3"]`;
   - `10-enable-nss-wrapper.sh` cria o usuário virtual para UID sem entrada no `/etc/passwd`;
+  - a `-nopy` (usada aqui) é a mesma release sem Python, venv e repositório do Arrow: base `debian:trixie`, `CMD ["bash"]`, cerca de 427 MB contra 598 MB da `-py3.12`;
   - o usuário padrão é root.
 - Só o GDAL é compilado; PROJ 9.6 e GEOS 3.13 vêm do Debian.
 - O GDAL tem os drivers OCI, Arrow/Parquet, PostGIS, GPKG, OpenFileGDB, KML, Elasticsearch e WMS/WFS/WCS/OGC API, mais os drivers núcleo (Shapefile etc.).

@@ -141,8 +141,10 @@ RUN find /tmp/mapserver -type f \
 SHELL [ "/bin/sh", "-c" ]
 
 
-# MapServer as a FastCGI server (multiwatch-managed workers behind spawn-fcgi)
-FROM docker.io/ndscprm/gdal:${GDAL_VERSION}-py${PYTHON_VERSION} AS release
+# MapServer as a FastCGI server (multiwatch-managed workers behind spawn-fcgi). Based on the GDAL image without
+# Python (-nopy, same GDAL build as the -devel one), as nothing here uses it; while Python MapScript is not
+# decided, compile and the -devel image stay on the -py<PYTHON_VERSION> variant
+FROM docker.io/ndscprm/gdal:${GDAL_VERSION}-nopy AS release
 
 ARG BASE_DIR
 ARG MAPSERVER_VERSION
