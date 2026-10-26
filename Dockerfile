@@ -16,6 +16,11 @@ ARG MAPSERVER_VERSION
 ARG MAPSERVER_SHA256
 ARG BASE_DIR
 
+# Same hardening flags as the GDAL base image: Debian's gcc does not enable them by default and mapserv
+# parses untrusted requests. Build args are not inherited from the base image, so they are repeated here
+ARG HARDENING_CFLAGS="-fstack-protector-strong -fstack-clash-protection -D_FORTIFY_SOURCE=3"
+ARG HARDENING_LDFLAGS="-Wl,-z,relro,-z,now"
+
 # Install deps
 RUN apt-get -y update && \
     apt-get install -y --no-install-recommends --no-install-suggests \
@@ -43,6 +48,11 @@ RUN MAPSERVER_URL=https://github.com/MapServer/MapServer/releases/download/rel-$
     test -d "$ORACLE_HOME" && \
     ( cd "$MAPSERVER_DIR/build" && \
     ORACLE_HOME="$ORACLE_HOME" cmake \
+        -DCMAKE_C_FLAGS="${HARDENING_CFLAGS}" \
+        -DCMAKE_CXX_FLAGS="${HARDENING_CFLAGS}" \
+        -DCMAKE_SHARED_LINKER_FLAGS="${HARDENING_LDFLAGS}" \
+        -DCMAKE_EXE_LINKER_FLAGS="${HARDENING_LDFLAGS}" \
+        -DCMAKE_MODULE_LINKER_FLAGS="${HARDENING_LDFLAGS}" \
         # debug symbols for the -devel image, with Release optimization (RelWithDebInfo defaults to -O2);
         # the staging stage strips them from the release
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -65,7 +75,7 @@ RUN MAPSERVER_URL=https://github.com/MapServer/MapServer/releases/download/rel-$
         -DWITH_GIF=OFF \
         -Wno-dev \
     .. && \
-    cmake --build . --target install && \
+    cmake --build . --parallel "$(nproc)" --target install && \
     # list of installed files, used by the staging stage to pick MapServer out of ${BASE_DIR}
     cp install_manifest.txt "${BASE_DIR}/share/mapserver/install_manifest.txt" ) && \
     rm -rf "$MAPSERVER_DIR/build" && \

@@ -210,6 +210,7 @@ docker build --target build -t docker.io/ndscprm/mapserver:8.6.6-devel .
 | `PYTHON_VERSION` | `3.12` | Versão do Python da imagem base de compilação (`-devel`); a imagem final não tem Python |
 | `MAPSERVER_VERSION` | `8.6.6` | Versão do MapServer |
 | `MAPSERVER_SHA256` | SHA256 do `mapserver-8.6.6.tar.gz` | Atualizar junto com `MAPSERVER_VERSION` |
+| `HARDENING_CFLAGS` / `HARDENING_LDFLAGS` | `-fstack-protector-strong -fstack-clash-protection -D_FORTIFY_SOURCE=3` / `-Wl,-z,relro,-z,now` | Proteções de compilação do MapServer, as mesmas da base `ndscprm/gdal` (o gcc do Debian não as liga por padrão) |
 
 As tags `ndscprm/gdal:<GDAL_VERSION>-py<PYTHON_VERSION>-devel` (build e imagem `-devel`) e `ndscprm/gdal:<GDAL_VERSION>-nopy` (imagem final, sem Python) precisam existir.
 

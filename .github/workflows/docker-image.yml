@@ -41,7 +41,7 @@ jobs:
       variants: |
         [
           {"name": "devel", "target": "build", "tag": "{version}-devel",
-           "test": "docker run --rm \"$IMAGE_REF\" mapserv -v | grep SUPPORTS=FASTCGI"},
+           "test": "sh .github/scripts/devel-test.sh \"$IMAGE_REF\""},
           {"name": "release", "target": "release", "tag": "{version}", "scan": true, "cache-to": true,
            "test": "sh .github/scripts/smoke-test.sh \"$IMAGE_REF\""}
         ]
