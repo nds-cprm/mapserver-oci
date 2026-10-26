@@ -15,15 +15,25 @@ A imagem final não tem Python (base `ndscprm/gdal:<versão>-nopy`): os utilitá
 
 ## Execução
 
-A imagem fala **FastCGI na porta 8080**, não HTTP. Coloque na frente um servidor web ou proxy com suporte a FastCGI, apontando para `<container>:8080`.
+A imagem fala **FastCGI na porta 8080**, não HTTP. Coloque na frente um servidor web ou proxy com suporte a FastCGI, apontando para `<container>:8080`, na mesma rede de containers. **Não publique a porta 8080** (veja [Porta FastCGI](#porta-fastcgi)):
 
 ```bash
-docker run -d --name mapserver -p 8080:8080 \
+docker network create mapserver
+docker run -d --name mapserver --network mapserver \
   -v /caminho/dos/mapfiles:/var/lib/mapserver/maps:ro \
   docker.io/ndscprm/mapserver:8.6.6
+# o servidor web, na mesma rede, aponta para mapserver:8080
 ```
 
 Os workers do MapServer são gerenciados pelo `multiwatch` (atrás do `spawn-fcgi`): se um processo `mapserv` morrer, outro é iniciado automaticamente.
+
+### Porta FastCGI
+
+No FastCGI, o ambiente que o MapServer e o GDAL leem em cada requisição é o conjunto de **parâmetros FastCGI** daquela requisição. O servidor web só envia os parâmetros do `fastcgi_params` e os cabeçalhos HTTP como `HTTP_*`, então um cliente HTTP não consegue mudar opções. Mas quem fala FastCGI direto com a porta 8080 pode mandar qualquer variável, como `MS_MAP_BAD_PATTERN`, `MS_MAPFILE` ou opções do GDAL (`GDAL_HTTP_PROXY` etc.).
+
+- As opções do MapServer que decidem qual arquivo é aberto estão fixadas no bloco `ENV` do `mapserver.conf` (veja [Mapfiles e configuração](#mapfiles-e-configuração)), que tem prioridade sobre o ambiente.
+- As opções do GDAL não podem ser fixadas uma a uma. Por isso a porta 8080 deve ficar acessível **só ao servidor web**: sem `-p 8080:8080` (ou `ports:` no Compose) em produção, e, no Kubernetes, com uma `NetworkPolicy` que só libere o pod do servidor web.
+- Quando o servidor web tem IP fixo, a variável `FCGI_WEB_SERVER_ADDRS` (da `libfcgi`) limita as conexões aceitas a uma lista de IPs, separados por vírgula: `-e FCGI_WEB_SERVER_ADDRS=10.0.0.5,10.0.0.6`. Conexões de outros endereços são fechadas sem resposta. A lista aceita só IPs exatos, sem faixas, então não serve quando o IP do servidor web muda a cada início.
 
 ### Variáveis de ambiente
 
@@ -45,6 +55,11 @@ O MapServer 8 exige um arquivo de configuração. O arquivo da imagem ([etc/maps
 
 - **`MS_MAP_PATTERN "^/var/lib/mapserver/"`**: só são aceitos mapfiles dentro de `/var/lib/mapserver`, informados como `map=/var/lib/mapserver/...`.
 - **Alias `DEFAULT`**: aponta para o mapfile de exemplo (`map=DEFAULT`).
+- **Opções fixadas contra parâmetros FastCGI** (veja [Porta FastCGI](#porta-fastcgi)), com os valores padrão do MapServer quando ele tem um:
+  - `MS_MAP_BAD_PATTERN`: recusa `//`, `/../` e `,` no `map=`;
+  - `MS_MAPFILE_PATTERN "\.map$"`: só abre arquivos `.map`;
+  - `MS_MAPFILE ""`: não há mapfile padrão; um pedido sem `map=` falha com `Filename validation failed`;
+  - `MS_CONTEXT_PATTERN "^$"` e `MS_CONTEXT_BAD_PATTERN`: o parâmetro `context=` (arquivos de contexto WMS) fica desligado.
 
 Monte seus mapfiles e dados em `/var/lib/mapserver`, como no exemplo acima.
 
@@ -53,6 +68,8 @@ Os valores do bloco `ENV` do `mapserver.conf` **têm prioridade sobre as variáv
 ```bash
 docker run ... -v ./mapserver.conf:/opt/geosgb/etc/mapserver.conf:ro docker.io/ndscprm/mapserver:8.6.6
 ```
+
+Parta do arquivo da imagem e mantenha as opções fixadas contra parâmetros FastCGI. Nas expressões regulares, o leitor do `mapserver.conf` converte `\\` em `\` e mantém uma `\` seguida de outro caractere. Como o MapServer usa PCRE2, onde `[/\]` é uma classe não fechada, escreva `\\\\` para uma barra invertida dentro de `[...]` (como no `MS_MAP_BAD_PATTERN` da imagem) e `\.` para um ponto literal. Um padrão inválido não dá erro na inicialização: todo pedido com `map=` passa a falhar com `fails to validate`.
 
 Para a OGC API, a rota vai no caminho da URL (ex.: `/mapserver/DEFAULT/ogcapi`). O mapfile precisa ter:
 - `oga_enable_request` e `oga_onlineresource` (a URL base usada nos links) no `WEB METADATA`;
@@ -115,7 +132,8 @@ Para conferir uma imagem construída localmente com o mesmo teste do CI: `sh .gi
 A imagem `-devel` também roda o MapServer como FastCGI, com o mesmo `start.sh`, a mesma configuração e os mesmos dados de exemplo, mas com 1 worker por padrão. O comando padrão continua `python3`, então é preciso passar `/start.sh`:
 
 ```bash
-docker run -d --name mapserver-devel -p 8080:8080 \
+# porta publicada só no host local, para depuração (veja Porta FastCGI)
+docker run -d --name mapserver-devel -p 127.0.0.1:8080:8080 \
   --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
   docker.io/ndscprm/mapserver:8.6.6-devel /start.sh
 # depurar o worker com gdb

@@ -4,15 +4,9 @@ Pendências de segurança e boas práticas levantadas na revisão do projeto.
 
 ## Prioridade alta
 
-- [ ] **Dados graváveis pelo processo.** O estágio `build` dá modo `775`/`664` a `/var/lib/mapserver/data`, com escrita para o grupo 0. Com `--user <uid>:0`, o `mapserv` pode reescrever o `default.map`, o `fonts.txt` e os shapefiles; rodando como root (`--user 0`), pode reescrever qualquer coisa. Somado ao `MS_MAP_PATTERN "^/var/lib/mapserver/"`, um arquivo gravado ali pode ser carregado como mapfile.
+- [ ] **Dados graváveis pelo processo.** O estágio `build` dá modo `775`/`664` a `/var/lib/mapserver/data`, com escrita para o grupo 0. Com `--user <uid>:0`, o `mapserv` pode reescrever o `default.map`, o `fonts.txt` e os shapefiles; rodando como root (`--user 0`), pode reescrever qualquer coisa. Somado ao `MS_MAP_PATTERN "^/var/lib/mapserver/"`, um arquivo `.map` gravado ali pode ser carregado como mapfile.
   - Manter `775` só em `/var/lib/mapserver` (necessário para o `HOME` e o `nss_wrapper`) e deixar `data/` com `755`/`644`.
   - Restringir o padrão, por exemplo `MS_MAP_PATTERN "^/var/lib/mapserver/data/.*\.map$"`.
-
-- [ ] **Opções de segurança sobrescritas por parâmetros FastCGI.** O `msCGILoadMap` lê `MS_MAP_BAD_PATTERN`, `MS_MAP_NO_PATH` e `MS_MAPFILE` com `CPLGetConfigOption`. Quando a opção não está no `ENV` do `mapserver.conf`, essa função recorre ao `getenv()`, e o `FCGI_Accept` troca o `environ` pelos parâmetros de cada requisição. Quem falar FastCGI direto com a porta 8080 pode enviar `MS_MAP_BAD_PATTERN=^$`, o que desliga o bloqueio de `..` e libera `map=/var/lib/mapserver/../../...`. Essa conclusão vem da leitura do código (`src/mapservutil.c`, 8.6.6) e ainda não foi testada.
-  - Fixar no bloco `ENV` do `mapserver.conf` o `MS_MAP_BAD_PATTERN` com o valor padrão (`[/\\]{2}|[/\\]?\.+[/\\]|,`).
-  - Avaliar `MS_MAP_NO_PATH "1"`, que só aceita os aliases de `MAPS`.
-  - Documentar no README que a porta 8080 nunca deve ficar acessível fora da rede do servidor web (NetworkPolicy; nada de `-p 8080:8080` em produção).
-  - Reproduzir com `cgi-fcgi` antes e depois da correção.
 
 ## Prioridade média (CI e cadeia de suprimentos)
 

@@ -3,7 +3,9 @@
 # DOCKER=podman .github/scripts/smoke-test.sh <image>).
 #   1. mapserv as a plain CGI (docker run, no web server): build options, WMS, OGC API, MS_MAP_PATTERN
 #   2. the FastCGI server as it runs in production (arbitrary UID, read-only root filesystem), queried with
-#      cgi-fcgi from another container: workers, request, errors in the container log (FIFO)
+#      cgi-fcgi from another container: workers, requests, errors in the container log (FIFO), and the
+#      options pinned in mapserver.conf against FastCGI parameters (a client talking FastCGI to the port
+#      can set any environment variable MapServer reads per request)
 set -eu
 
 IMAGE=${1:?usage: $0 <image>}
@@ -56,10 +58,23 @@ workers=$("$DOCKER" exec "$NAME" sh -c 'n=0; for p in /proc/[0-9]*; do
     set -e
     export DEBIAN_FRONTEND=noninteractive
     apt-get -qq update && apt-get -qq install -y --no-install-recommends libfcgi-bin > /dev/null
-    env -i REQUEST_METHOD=GET SCRIPT_NAME=/mapserver QUERY_STRING='map=DEFAULT&SERVICE=WMS&REQUEST=GetCapabilities' \
-        cgi-fcgi -bind -connect $NAME:8080 | grep -q '<WMS_Capabilities'
-    env -i REQUEST_METHOD=GET SCRIPT_NAME=/mapserver QUERY_STRING='map=/etc/passwd' \
-        cgi-fcgi -bind -connect $NAME:8080 > /dev/null" || fail "FastCGI request"
+    # \$1 = expected text, the rest = FastCGI parameters
+    req() {
+        expected=\$1
+        shift
+        env -i REQUEST_METHOD=GET SCRIPT_NAME=/mapserver \"\$@\" cgi-fcgi -bind -connect $NAME:8080 \
+            | grep -q \"\$expected\" || { echo \"FastCGI \$*: no '\$expected'\" >&2; exit 1; }
+    }
+    Q='SERVICE=WMS&REQUEST=GetCapabilities'
+    req '<WMS_Capabilities' QUERY_STRING=\"map=DEFAULT&\$Q\"
+    # a path in map= must keep working: an invalid MS_MAP_BAD_PATTERN (escaping) rejects every path
+    req '<WMS_Capabilities' QUERY_STRING=\"map=/var/lib/mapserver/data/default.map&\$Q\"
+    req 'fails to validate' QUERY_STRING='map=/etc/passwd'
+    # overrides sent as FastCGI parameters must not reach the pinned options
+    req 'fails to validate' QUERY_STRING=\"map=/var/lib/mapserver/../../etc/passwd&\$Q\" 'MS_MAP_BAD_PATTERN=^\$' MS_MAPFILE_PATTERN=.
+    req 'Filename validation failed' QUERY_STRING=\"\$Q\" MS_MAPFILE=/etc/passwd MS_MAPFILE_PATTERN=.
+    req 'fails to validate' QUERY_STRING='map=DEFAULT&context=/etc/passwd&mode=map' MS_CONTEXT_PATTERN=. 'MS_CONTEXT_BAD_PATTERN=^\$'
+    " || fail "FastCGI requests"
 sleep 1
 "$DOCKER" logs "$NAME" 2>&1 | grep -q 'msCGILoadMap().*fails to validate' || fail "MapServer error not in the container log"
 
