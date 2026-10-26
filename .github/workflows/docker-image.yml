@@ -1,9 +1,19 @@
 name: Docker Image CI
 
 on:
-  # manual, and also dispatched by the CI of gdal-oci after it publishes new ndscprm/gdal tags. There is no
-  # scheduled rebuild: a new base image invalidates every layer, so apt fetches the current packages then
+  # manual, and also dispatched by the CI of gdal-oci after it publishes new ndscprm/gdal tags, with their
+  # versions in gdal_version and python_version. There is no scheduled rebuild: a new base image invalidates
+  # every layer, so apt fetches the current packages then
   workflow_dispatch:
+    inputs:
+      gdal_version:
+        description: ndscprm/gdal GDAL version (base image tags). Empty = ARG GDAL_VERSION in the Dockerfile
+        required: false
+        default: ""
+      python_version:
+        description: ndscprm/gdal Python version (base image tags). Empty = ARG PYTHON_VERSION in the Dockerfile
+        required: false
+        default: ""
   #push:
   #  branches: [ "main" ]
   #pull_request:
@@ -35,6 +45,11 @@ jobs:
     with:
       image: docker.io/ndscprm/mapserver
       version-arg: MAPSERVER_VERSION
+      # base image versions given by gdal-oci when it starts this workflow (the tags it has just published);
+      # empty lines are ignored, so without them the ARG defaults of the Dockerfile are built
+      build-args: |
+        ${{ inputs.gdal_version && format('GDAL_VERSION={0}', inputs.gdal_version) || '' }}
+        ${{ inputs.python_version && format('PYTHON_VERSION={0}', inputs.python_version) || '' }}
       # devel and release come from the same Bake call, so they share the compile stage (same MapServer
       # build); the release goes through every stage (COPY --from=build), so it writes the cache.
       # Vulnerabilities are only reported (no fail-on-severity), but a failed scan stops the publication
