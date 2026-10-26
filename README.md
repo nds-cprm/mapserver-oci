@@ -108,6 +108,10 @@ São publicadas duas tags por versão, como na imagem base GDAL:
 - `ndscprm/mapserver:<versão>`: imagem final;
 - `ndscprm/mapserver:<versão>-devel`: imagem de desenvolvimento, para depurar ou compilar código que dependa do MapServer.
 
+Essas tags são móveis: cada build as atualiza. Cada build também cria tags datadas, que nunca são sobrescritas, para fixar uma versão ou voltar a uma anterior: `<versão>-<AAAAMMDD>` e `<versão>-devel-<AAAAMMDD>` (ex.: `8.6.6-20261026`; um segundo build no mesmo dia recebe `.2`, `.3`...). As imagens publicadas têm attestations de SBOM e de provenance (`docker buildx imagetools inspect docker.io/ndscprm/mapserver:8.6.6 --format '{{ json .SBOM }}'`).
+
+Para conferir uma imagem construída localmente com o mesmo teste do CI: `sh .github/scripts/smoke-test.sh <imagem>` (com Podman: `DOCKER=podman sh .github/scripts/smoke-test.sh <imagem>`).
+
 A imagem `-devel` também roda o MapServer como FastCGI, com o mesmo `start.sh`, a mesma configuração e os mesmos dados de exemplo, mas com 1 worker por padrão. O comando padrão continua `python3`, então é preciso passar `/start.sh`:
 
 ```bash

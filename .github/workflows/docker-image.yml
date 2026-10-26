@@ -9,180 +9,39 @@ on:
   #schedule:
   #- cron: "0 2 * * 1-5"
 
-env:
-  IMAGE: ndscprm/mapserver
-
-# Least privilege for GITHUB_TOKEN; jobs that need more declare it. Artifacts and the GHA build
-# cache use the runtime token, not GITHUB_TOKEN, so they need no permission here.
+# Least privilege for GITHUB_TOKEN; the image job grants what the reusable workflow needs
 permissions:
   contents: read
 
+# one build at a time, so two runs never push the same tags in parallel; a running build is never cancelled
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
-  # One job per architecture on native runners. Images are pushed by digest only (no tag);
-  # the merge job assembles the multi-platform tags from those digests.
-  build:
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-        - arch: amd64
-          runner: ubuntu-24.04
-        - arch: arm64
-          runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v7
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v4
-
-    - name: Login to Docker Hub
-      uses: docker/login-action@v4
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-    # devel first (toolchain, headers and sources); release reuses its cached build stage
-    - name: Build and push devel image
-      id: devel
-      uses: docker/build-push-action@v7
-      with:
-        context: .
-        file: Dockerfile
-        platforms: linux/${{ matrix.arch }}
-        # Always attempt to pull all referenced images
-        pull: true
-        outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-        target: build
-        cache-from: type=gha,scope=${{ matrix.arch }}
-        cache-to: type=gha,scope=${{ matrix.arch }},mode=max
-
-    - name: Build and push release image
-      id: release
-      uses: docker/build-push-action@v7
-      with:
-        context: .
-        file: Dockerfile
-        platforms: linux/${{ matrix.arch }}
-        # Always attempt to pull all referenced images
-        pull: true
-        outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-        target: release
-        cache-from: type=gha,scope=${{ matrix.arch }}
-        cache-to: type=gha,scope=${{ matrix.arch }},mode=max
-
-    - name: Export digests
-      env:
-        DEVEL_DIGEST: ${{ steps.devel.outputs.digest }}
-        RELEASE_DIGEST: ${{ steps.release.outputs.digest }}
-      run: |
-        mkdir -p "${{ runner.temp }}/digests/devel" "${{ runner.temp }}/digests/release"
-        touch "${{ runner.temp }}/digests/devel/${DEVEL_DIGEST#sha256:}"
-        touch "${{ runner.temp }}/digests/release/${RELEASE_DIGEST#sha256:}"
-
-    - name: Upload digests
-      uses: actions/upload-artifact@v7
-      with:
-        name: digests-${{ matrix.arch }}
-        path: ${{ runner.temp }}/digests/*
-        if-no-files-found: error
-        retention-days: 1
-
-  # Scans the release digest of each platform before it gets a tag
-  scan:
-    needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [ amd64, arm64 ]
-    runs-on: ubuntu-24.04
-    # job-level permissions replace the workflow ones: upload-sarif needs security-events,
-    # plus actions and contents in private repositories
+  # Build, test, scan and tags in the reusable workflow of the base image (README of gdal-oci,
+  # "Workflow reutilizável"): native runners per architecture, push by digest, tags only after the
+  # tests and scans of both architectures
+  image:
+    uses: nds-cprm/gdal-oci/.github/workflows/oci-image.yml@main
     permissions:
-      actions: read
       contents: read
+      # upload of the SARIF reports to code scanning (actions: read is also needed in private repositories)
+      actions: read
       security-events: write
-    steps:
-    - name: Download digests
-      uses: actions/download-artifact@v8
-      with:
-        name: digests-${{ matrix.arch }}
-        path: ${{ runner.temp }}/digests
-
-    - name: Get release digest
-      id: digest
-      run: |
-        DIGEST=$(ls "${{ runner.temp }}/digests/release")
-        test -n "$DIGEST"
-        echo "image=${IMAGE}@sha256:${DIGEST}" >> "$GITHUB_OUTPUT"
-
-    - name: Login to Docker Hub
-      uses: docker/login-action@v4
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-    - name: Analyze for critical and high CVEs
-      id: docker-scout-cves
-      uses: docker/scout-action@v1
-      with:
-        command: cves
-        # single-platform manifest, so no platform selection is needed
-        image: registry://${{ steps.digest.outputs.image }}
-        sarif-file: sarif-${{ matrix.arch }}.output.json
-        summary: true
-
-    # one category per platform, so each upload doesn't replace the other's results
-    - name: Upload SARIF result
-      id: upload-sarif
-      uses: github/codeql-action/upload-sarif@v4
-      with:
-        sarif_file: sarif-${{ matrix.arch }}.output.json
-        category: docker-scout-${{ matrix.arch }}
-
-  # Creates the multi-platform tags (<MAPSERVER_VERSION> and <MAPSERVER_VERSION>-devel) after both scans.
-  # Vulnerabilities are only reported (no exit-code in Scout), but a failed scan stops the publication.
-  merge:
-    needs: scan
-    runs-on: ubuntu-24.04
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v7
-
-    - name: Get image tags from the Dockerfile
-      id: meta
-      run: |
-        MAPSERVER_VERSION=$(sed -n 's/^ARG MAPSERVER_VERSION=//p' Dockerfile)
-        test -n "$MAPSERVER_VERSION"
-        echo "release=${IMAGE}:${MAPSERVER_VERSION}" >> "$GITHUB_OUTPUT"
-        echo "devel=${IMAGE}:${MAPSERVER_VERSION}-devel" >> "$GITHUB_OUTPUT"
-
-    - name: Download digests
-      uses: actions/download-artifact@v8
-      with:
-        path: ${{ runner.temp }}/digests
-        pattern: digests-*
-        merge-multiple: true
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v4
-
-    - name: Login to Docker Hub
-      uses: docker/login-action@v4
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-    - name: Create multi-platform tags
-      env:
-        DEVEL_TAG: ${{ steps.meta.outputs.devel }}
-        RELEASE_TAG: ${{ steps.meta.outputs.release }}
-      working-directory: ${{ runner.temp }}/digests
-      run: |
-        for variant in devel release; do
-          if [ "$variant" = devel ]; then tag=$DEVEL_TAG; else tag=$RELEASE_TAG; fi
-          # shellcheck disable=SC2046
-          docker buildx imagetools create -t "$tag" $(printf "${IMAGE}@sha256:%s " $(ls "$variant"))
-          docker buildx imagetools inspect "$tag"
-        done
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    with:
+      image: docker.io/ndscprm/mapserver
+      version-arg: MAPSERVER_VERSION
+      # devel and release come from the same Bake call, so they share the compile stage (same MapServer
+      # build); the release goes through every stage (COPY --from=build), so it writes the cache.
+      # Vulnerabilities are only reported (no fail-on-severity), but a failed scan stops the publication
+      variants: |
+        [
+          {"name": "devel", "target": "build", "tag": "{version}-devel",
+           "test": "docker run --rm \"$IMAGE_REF\" mapserv -v | grep SUPPORTS=FASTCGI"},
+          {"name": "release", "target": "release", "tag": "{version}", "scan": true, "cache-to": true,
+           "test": "sh .github/scripts/smoke-test.sh \"$IMAGE_REF\""}
+        ]
