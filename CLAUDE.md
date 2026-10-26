@@ -138,7 +138,7 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
 - **Logs**: por padrão, os erros do MapServer vão para o `docker logs`.
   - **Por que não `stderr` nem `/dev/stderr`:** no `mapserv` com FastCGI, `MS_ERRORFILE=stderr` aponta para o stream de erro do **protocolo FastCGI** (vai para o servidor web), e `/dev/stderr` não pode ser aberto por usuário não root, porque o pipe do container pertence ao root.
   - **Como funciona:** quando `MS_ERRORFILE` não está definida, o `start.sh`:
-    1. cria o FIFO `/tmp/mapserver-errors.fifo` (do próprio usuário);
+    1. cria o FIFO `errors.fifo` (modo 600, do próprio usuário) num diretório novo criado com `mktemp -d` (`${TMPDIR:-/tmp}/mapserver.XXXXXX`, 0700), nunca num caminho fixo do `/tmp`, que poderia ter sido plantado antes (mesmo cuidado do nss_wrapper da base);
     2. abre o FIFO em leitura e escrita no **fd 3** (`exec 3<>`), herdado por `spawn-fcgi`, `multiwatch` (PID 1) e workers;
     3. sobe o leitor `( while :; do cat <&3 >&2 || :; sleep 1; done ) &`;
     4. exporta `MS_ERRORFILE` apontando para o FIFO.

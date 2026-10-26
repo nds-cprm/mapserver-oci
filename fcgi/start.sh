@@ -7,8 +7,9 @@ MAPSERVER_CMD=$(command -v mapserv)
 # FastCGI stderr stream (web server log) and /dev/stderr can't be opened by non-root users, so the
 # workers write to a FIFO that a background reader copies to this process' stderr.
 if [ -z "${MS_ERRORFILE:-}" ]; then
-    LOG_FIFO=/tmp/mapserver-errors.fifo
-    rm -f "$LOG_FIFO"
+    # in a new directory of its own (mktemp: 0700, fails if the name exists), never at a fixed path in
+    # /tmp, which could have been planted beforehand (e.g. a symlink in a /tmp shared between containers)
+    LOG_FIFO=$(mktemp -d "${TMPDIR:-/tmp}/mapserver.XXXXXX")/errors.fifo
     mkfifo -m 600 "$LOG_FIFO"
     # keep the FIFO open read-write on fd 3, inherited by spawn-fcgi/multiwatch/workers: there is always
     # a reader, so opening it never blocks (a worker respawned after the reader died would hang in fopen)
