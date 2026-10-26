@@ -119,8 +119,8 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
   5. `COPY --from=build /var/lib/mapserver/ /var/lib/mapserver/`: traz o `data/` com os modos ajustados no `build` (dono root, grupo 0 com escrita). A cópia é do diretório **pai**: o `COPY` de um diretório copia só o conteúdo e cria o destino com `755`, então copiar o pai faz o próprio `data/` manter o modo. O `COPY --chmod` não é usado porque daria o mesmo modo a arquivos e diretórios.
   6. `WORKDIR /var/lib/mapserver`.
   - O MapServer e esses arquivos ficam depois do apt para que mudá-los não invalide o cache dos pacotes. O `RUN` do apt já é refeito quando o `staging` muda, por causa do bind mount.
-- **Usuário**: não há usuário próprio nem `USER`; o padrão é **root**, herdado da base.
-  - Com UID arbitrário (`--user <uid>:0`, OpenShift), o `nss_wrapper` da base cria o usuário virtual `sgb`.
+- **Usuário**: `USER 1000:0`, o último passo antes do `EXPOSE`, igual nos projetos irmãos (`mapproxy-oci`, `pygeoapi-oci`). A `-devel` continua como root.
+  - O UID 1000 não está no `/etc/passwd` de propósito: o `nss_wrapper` da base cria o usuário virtual com o nome padrão `sgb` (`USER_NAME`, não definido na imagem), como faz com qualquer UID arbitrário (`--user <uid>:0`, OpenShift).
   - Esse usuário roda com **GID 0** (padrão do `docker run --user <uid>`, do Kubernetes sem `runAsGroup` e do OpenShift). Por causa do `g=u`, ele pode escrever em `/var/lib/mapserver` e o `HOME` continua sendo `/var/lib/mapserver`.
   - Com um GID diferente de 0 (ex.: `--user 12345:12345`), o diretório não é gravável e o script da base troca o `HOME` para `/tmp`.
 - **ENV**: `MAPSERVER_FCGI_PORT=8080`, `MAPSERVER_WORKERS=4` e `HOME=/var/lib/mapserver`. O `MS_ERRORFILE` fica sem valor de propósito (veja Logs, abaixo).

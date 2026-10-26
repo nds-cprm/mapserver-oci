@@ -183,6 +183,11 @@ ENV MAPSERVER_FCGI_PORT=8080 \
     MAPSERVER_WORKERS=4 \
     HOME=/var/lib/mapserver
 
+# unprivileged by default. UID 1000 is not in /etc/passwd on purpose: the base image nss_wrapper creates
+# a virtual user for it at start (USER_NAME, default sgb), as it does for arbitrary UIDs (OpenShift).
+# Group 0 is the one that can write to HOME
+USER 1000:0
+
 EXPOSE 8080
 
 # ENTRYPOINT (/docker-entrypoint.sh) is inherited from the base image

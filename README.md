@@ -82,8 +82,8 @@ O `docker logs` também mostra a inicialização e os eventos do `multiwatch` (e
 
 ## Usuário e permissões
 
-- **Usuário padrão:** sem `--user`, o container roda como root.
-- **UID arbitrário:** `docker run --user <uid>`, `runAsUser` no Kubernetes e OpenShift são suportados. O entrypoint da imagem base cria um usuário virtual (`sgb`) via `nss_wrapper`.
+- **Usuário padrão:** a imagem roda como `1000:0`, sem privilégios. A imagem `-devel` continua como root.
+- **UID arbitrário:** `docker run --user <uid>`, `runAsUser` no Kubernetes e OpenShift são suportados. Quando a UID não existe no `/etc/passwd` (caso do 1000), o entrypoint da imagem base cria um usuário virtual (`sgb`, variável `USER_NAME`) via `nss_wrapper`.
 - **Escrita em `/var/lib/mapserver`:** o diretório (`HOME`) é gravável pelo grupo 0. Usuários com GID 0, que é o padrão nesses ambientes, podem escrever nele. Com outro GID, o `HOME` passa a ser `/tmp`.
 
 ## Testando sem servidor web
