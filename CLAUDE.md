@@ -189,7 +189,7 @@ Fatos verificados nas tags `3.12.4-py3.12-devel`, `3.12.4-py3.12` e `3.12.4-nopy
 - Só o GDAL é compilado; PROJ 9.6 e GEOS 3.13 vêm do Debian.
 - O GDAL tem os drivers OCI, Arrow/Parquet, PostGIS, GPKG, OpenFileGDB, KML, Elasticsearch e WMS/WFS/WCS/OGC API, mais os drivers núcleo (Shapefile etc.).
 - Bibliotecas sem RPATH: `/opt/geosgb/lib` e o diretório do Oracle estão em `/etc/ld.so.conf.d/`. O `mapserv` tem `RUNPATH=/opt/geosgb/lib`.
-- Para usar o `gdb` na imagem `-devel`: `docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined ...`. Com os símbolos do `RelWithDebInfo` e o código-fonte em `${BASE_DIR}/src`, o backtrace mostra arquivo e linha (ex.: `main (...) at .../src/apps/mapserv.c:276`). Com `-O3`, algumas variáveis aparecem como `<optimized out>`.
+- Para usar o `gdb` na imagem `-devel`: `docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined ...` e instalar o `gdb` na hora, como root (`apt-get update && apt-get install -y gdb`): a base `ndscprm/gdal` não o traz mais, nem os símbolos do GDAL (o padrão dela é `GDAL_BUILD_TYPE=Release`). Com os símbolos do `RelWithDebInfo` do MapServer e o código-fonte em `${BASE_DIR}/src`, o backtrace mostra arquivo e linha no MapServer (ex.: `main (...) at .../src/apps/mapserv.c:276`); os quadros do GDAL só têm o nome da função, a menos que a base seja construída com `GDAL_BUILD_TYPE=RelWithDebInfo`. Com `-O3`, algumas variáveis aparecem como `<optimized out>`.
 
 ## Convenções
 

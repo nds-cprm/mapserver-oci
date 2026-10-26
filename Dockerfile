@@ -111,7 +111,8 @@ COPY data /var/lib/mapserver/data
 RUN find /var/lib/mapserver -type d -exec chmod 775 {} + && \
     find /var/lib/mapserver -type f -exec chmod 664 {} +
 
-# a single worker by default, easier to follow with gdb (gdb -p needs --cap-add=SYS_PTRACE)
+# a single worker by default, easier to follow with gdb (installed on demand: apt-get install gdb;
+# gdb -p needs --cap-add=SYS_PTRACE)
 ENV MAPSERVER_FCGI_PORT=8080 \
     MAPSERVER_WORKERS=1
 

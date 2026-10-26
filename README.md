@@ -189,9 +189,12 @@ A imagem `-devel` também roda o MapServer como FastCGI, com o mesmo `start.sh`,
 docker run -d --name mapserver-devel -p 127.0.0.1:8080:8080 \
   --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
   docker.io/ndscprm/mapserver:8.6.6-devel /start.sh
-# depurar o worker com gdb
+# depurar o worker com gdb (a imagem base não traz o gdb: instale na hora, como root)
+docker exec -u 0 mapserver-devel sh -c 'apt-get update && apt-get install -y gdb'
 docker exec -it mapserver-devel sh -c 'gdb -p $(pgrep -f "^/opt/geosgb/bin/mapserv")'
 ```
+
+O MapServer da `-devel` tem símbolos de debug e o código-fonte, então o backtrace mostra arquivo e linha no código dele. O GDAL da imagem base publicada não tem símbolos: os quadros do GDAL aparecem só com o nome da função. Para depurar dentro do GDAL, construa localmente a `devel` da base com `GDAL_BUILD_TYPE=RelWithDebInfo` (README do gdal-oci, "Depuração com gdb"), marque-a com a tag que o `FROM` usa (`docker tag <imagem> docker.io/ndscprm/gdal:3.12.4-py3.12-devel`) e construa a `-devel` daqui sem `--pull`.
 
 As duas tags são multiplataforma (`linux/amd64` e `linux/arm64`). O Docker escolhe sozinho a variante da máquina. Para construir uma arquitetura específica localmente, use `docker buildx build --platform linux/arm64 ...`; para isso, a imagem base também precisa existir nessa arquitetura.
 
