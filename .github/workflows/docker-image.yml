@@ -1,13 +1,16 @@
 name: Docker Image CI
 
 on:
+  # manual, and also dispatched by the CI of gdal-oci after it publishes new ndscprm/gdal tags
   workflow_dispatch:
+  # monthly rebuild (03:00 UTC on day 1), to pick up security fixes of the Debian packages even when the
+  # base image did not change
+  schedule:
+  - cron: "0 3 1 * *"
   #push:
   #  branches: [ "main" ]
   #pull_request:
   #  branches: [ "main" ]
-  #schedule:
-  #- cron: "0 2 * * 1-5"
 
 # Least privilege for GITHUB_TOKEN; the image job grants what the reusable workflow needs
 permissions:
@@ -35,6 +38,9 @@ jobs:
     with:
       image: docker.io/ndscprm/mapserver
       version-arg: MAPSERVER_VERSION
+      # scheduled rebuilds ignore the layer cache, so apt fetches the current packages even when the base
+      # image did not change (a new base image already invalidates every layer)
+      no-cache: ${{ github.event_name == 'schedule' }}
       # devel and release come from the same Bake call, so they share the compile stage (same MapServer
       # build); the release goes through every stage (COPY --from=build), so it writes the cache.
       # Vulnerabilities are only reported (no fail-on-severity), but a failed scan stops the publication
