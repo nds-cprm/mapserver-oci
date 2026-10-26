@@ -1,0 +1,50 @@
+name: mapserver-nginx
+
+# Logs go to stdout/stderr and are stored by the container runtime; without
+# limits the json-file driver grows forever. With Docker, a host-wide default in
+# /etc/docker/daemon.json (e.g. "log-driver": "local") is an alternative.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  # FastCGI on port 8080, reachable only from this Compose network: no ports:
+  # here (a client talking FastCGI directly can set MapServer and GDAL options)
+  mapserver:
+    image: ${MAPSERVER_IMAGE:-docker.io/ndscprm/mapserver:8.6.6}
+    read_only: true
+    # /tmp: nss_wrapper passwd entry for the image UID and the error log FIFO
+    tmpfs:
+      - /tmp
+    environment:
+      MAPSERVER_WORKERS: 4
+    # your own mapfiles and data (map=/var/lib/mapserver/maps/<file>.map):
+    # volumes:
+    #   - ./maps:/var/lib/mapserver/maps:ro
+    healthcheck:
+      test: ["CMD", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped
+    logging: *logging
+
+  # The image speaks FastCGI on port 8080; nginx exposes it as HTTP.
+  # Unprivileged image: runs as UID 101 and listens on 8080.
+  nginx:
+    image: docker.io/nginxinc/nginx-unprivileged:1.30-alpine
+    depends_on:
+      mapserver:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./conf/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+    logging: *logging

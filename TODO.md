@@ -16,8 +16,6 @@ Pendências de segurança e boas práticas levantadas na revisão do projeto.
 
 ## Prioridade baixa (boas práticas)
 
-- [ ] **Sistema de arquivos somente leitura.** Testado em 2026-10-25 no Podman, em modo Docker (`--read-only --read-only-tmpfs=false --tmpfs /tmp --passwd=false`): o `nss_wrapper` cria o usuário em `/tmp`, e WMS, OGC API e o log pelo FIFO funcionam. Falta documentar no README `--read-only --tmpfs /tmp` (no Kubernetes, `readOnlyRootFilesystem: true` com um `emptyDir` em `/tmp`).
-- [ ] **Healthcheck.** Documentar uma probe `tcpSocket` na 8080 para Kubernetes. Ela não detecta worker travado.
 - [ ] **Mapfile de exemplo na release.** O `default.map` é publicado como `DEFAULT`, com `wms_enable_request "*"` e `include_items "all"`. Documentar como remover o alias ou levar o exemplo só para a `-devel`.
 - [ ] **Decidir sobre o Python MapScript.** A release já usa a base sem Python (`ndscprm/gdal:<GDAL>-nopy`, desde 2026-10-25), e a compilação continua na `-py<PY>-devel`.
   - **Se o MapScript não entrar:** avaliar compilar numa `-devel` sem Python, se a base vier a publicar uma, e tirar o `PYTHON_VERSION`.

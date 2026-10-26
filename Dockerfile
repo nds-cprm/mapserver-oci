@@ -84,13 +84,16 @@ RUN apt-get -y update && \
     apt-get install -y --no-install-recommends --no-install-suggests \
         # used by data/fonts.txt
         fonts-liberation \
+        # cgi-fcgi, used by /usr/local/bin/healthcheck
+        libfcgi-bin \
         multiwatch \
         spawn-fcgi && \
     apt-get -y autoremove && \
     rm -rf /var/lib/apt/lists/*
 
-COPY etc/mapserver.conf ${BASE_DIR}/etc/mapserver.conf
+COPY etc/mapserver.conf etc/healthcheck.map ${BASE_DIR}/etc/
 COPY --chmod=755 fcgi/start.sh /start.sh
+COPY --chmod=755 docker/healthcheck /usr/local/bin/healthcheck
 COPY data /var/lib/mapserver/data
 
 # Sample data with deterministic modes (group-writable, nothing executable), regardless of the checkout umask;
@@ -162,14 +165,18 @@ RUN --mount=type=bind,from=staging,source=/tmp/runtime-packages.txt,target=/tmp/
         $(cat /tmp/runtime-packages.txt) \
         # used by data/fonts.txt
         fonts-liberation \
+        # cgi-fcgi, used by /usr/local/bin/healthcheck
+        libfcgi-bin \
         multiwatch \
         spawn-fcgi && \
     apt-get -y autoremove && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=staging /tmp/mapserver/ /
-COPY etc/mapserver.conf ${BASE_DIR}/etc/mapserver.conf
+COPY etc/mapserver.conf etc/healthcheck.map ${BASE_DIR}/etc/
 COPY --chmod=755 fcgi/start.sh /start.sh
+# health check command shared by every runtime (see HEALTHCHECK below)
+COPY --chmod=755 docker/healthcheck /usr/local/bin/healthcheck
 
 # non-root users created at startup (arbitrary UID, nss_wrapper) run with GID 0: let them write to HOME
 RUN ldconfig && \
@@ -190,7 +197,14 @@ ENV MAPSERVER_FCGI_PORT=8080 \
 # Group 0 is the one that can write to HOME
 USER 1000:0
 
+# FastCGI, not HTTP: put a web server in front, on the same network, and don't publish the port
 EXPOSE 8080
+
+# FastCGI request answered by a mapserv worker (docker/healthcheck): fails if no worker is serving.
+# Only applied by Docker: Podman ignores it in OCI images and Kubernetes never uses it, so Compose,
+# Quadlet and probes call the same script
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD [ "healthcheck" ]
 
 # ENTRYPOINT (/docker-entrypoint.sh) is inherited from the base image
 CMD [ "/start.sh" ]

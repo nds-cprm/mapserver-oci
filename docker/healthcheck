@@ -1,0 +1,10 @@
+#!/bin/sh
+# Container health check, shared by every runtime (Dockerfile HEALTHCHECK, Compose,
+# Podman/Quadlet, Kubernetes probes): a FastCGI request (cgi-fcgi) to the local
+# port, answered by a mapserv worker, for the HEALTHCHECK alias of mapserver.conf
+# (an empty 1x1 PNG, ${BASE_DIR}/etc/healthcheck.map). Fails if no worker answers
+# within 4 seconds or the answer is not the PNG; logs nothing when it passes.
+# A mapserver.conf of your own must keep the HEALTHCHECK alias.
+timeout 4 env -i REQUEST_METHOD=GET SCRIPT_NAME=/mapserver QUERY_STRING='map=HEALTHCHECK&mode=map' \
+    cgi-fcgi -bind -connect "127.0.0.1:${MAPSERVER_FCGI_PORT:-8080}" 2> /dev/null \
+    | head -c 256 | tr -d '\r' | grep -aq '^Content-Type: image/png'

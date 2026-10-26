@@ -1,0 +1,12 @@
+#
+# Map of the container health check (/usr/local/bin/healthcheck), published as the
+# HEALTHCHECK alias of mapserver.conf: an empty 1x1 PNG (mode=map), rendered
+# without layers or data, so the check needs a working mapserv worker but does
+# not depend on the mapfiles mounted in /var/lib/mapserver and logs nothing.
+#
+MAP
+  NAME "healthcheck"
+  SIZE 1 1
+  EXTENT 0 0 1 1
+  IMAGETYPE png
+END

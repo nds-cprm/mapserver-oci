@@ -25,6 +25,8 @@ docker run -d --name mapserver --network mapserver \
 # o servidor web, na mesma rede, aponta para mapserver:8080
 ```
 
+Um exemplo completo com o nginx na frente, em Docker Compose, está em [examples/](examples/README.md).
+
 Os workers do MapServer são gerenciados pelo `multiwatch` (atrás do `spawn-fcgi`): se um processo `mapserv` morrer, outro é iniciado automaticamente.
 
 ### Porta FastCGI
@@ -55,6 +57,7 @@ O MapServer 8 exige um arquivo de configuração. O arquivo da imagem ([etc/maps
 
 - **`MS_MAP_PATTERN "^/var/lib/mapserver/"`**: só são aceitos mapfiles dentro de `/var/lib/mapserver`, informados como `map=/var/lib/mapserver/...`.
 - **Alias `DEFAULT`**: aponta para o mapfile de exemplo (`map=DEFAULT`).
+- **Alias `HEALTHCHECK`**: usado pelo [healthcheck](#healthcheck) (um PNG vazio de 1×1, sem dados).
 - **Opções fixadas contra parâmetros FastCGI** (veja [Porta FastCGI](#porta-fastcgi)), com os valores padrão do MapServer quando ele tem um:
   - `MS_MAP_BAD_PATTERN`: recusa `//`, `/../` e `,` no `map=`;
   - `MS_MAPFILE_PATTERN "\.map$"`: só abre arquivos `.map`;
@@ -104,20 +107,70 @@ O `docker logs` também mostra a inicialização e os eventos do `multiwatch` (e
 - **Usuário padrão:** a imagem roda como `1000:0`, sem privilégios. A imagem `-devel` continua como root.
 - **UID arbitrário:** `docker run --user <uid>`, `runAsUser` no Kubernetes e OpenShift são suportados. Quando a UID não existe no `/etc/passwd` (caso do 1000), o entrypoint da imagem base cria um usuário virtual (`sgb`, variável `USER_NAME`) via `nss_wrapper`.
 - **Escrita em `/var/lib/mapserver`:** o diretório (`HOME`) é gravável pelo grupo 0. Usuários com GID 0, que é o padrão nesses ambientes, podem escrever nele. Com outro GID (ex.: `--user 12345:12345`), o `HOME` continua sendo `/var/lib/mapserver`, mas sem permissão de escrita. O MapServer não grava no `HOME`, então a imagem funciona assim mesmo.
+- **Sistema de arquivos raiz somente leitura** (`--read-only`, `read_only: true`, `readOnlyRootFilesystem: true`): suportado, desde que `/tmp` seja gravável (`--tmpfs /tmp`; no Kubernetes, um `emptyDir`). O `nss_wrapper` grava ali o usuário virtual, e o `start.sh`, o FIFO do log de erros. Sem `/tmp` gravável, o container não inicia quando a UID não existe no `/etc/passwd`.
+
+## Healthcheck
+
+A imagem traz o comando [`healthcheck`](docker/healthcheck) (em `/usr/local/bin`). Ele faz um pedido FastCGI à porta local (com o `cgi-fcgi`, que vem na imagem) para o alias `HEALTHCHECK` do `mapserver.conf`, que desenha um PNG vazio de 1×1 a partir de [`etc/healthcheck.map`](etc/healthcheck.map). Falha se nenhum worker responder em 4 segundos. O pedido não depende dos seus mapfiles e não grava nada no log. Um `mapserver.conf` próprio precisa manter o alias `HEALTHCHECK`.
+
+O `HEALTHCHECK` do Dockerfile não é suportado por todos os runtimes: o Podman o ignora em imagens no formato OCI, como as publicadas, e o Kubernetes nunca o usa. Por isso o comando é o mesmo em todos, mas cada runtime precisa declarar o seu:
+
+| Runtime | Onde declarar | Quando o check falha |
+|---|---|---|
+| `docker run` | `HEALTHCHECK` da imagem (automático) | só marca `unhealthy` |
+| Docker Compose / `podman compose` | `healthcheck:` no Compose, como no [exemplo](examples/README.md) | só marca `unhealthy` (Docker) |
+| Podman | `--health-cmd` ou Quadlet | pode reiniciar com `--health-on-failure` / `HealthOnFailure=` |
+| Kubernetes / OpenShift | probes `exec` | a liveness reinicia o container; a readiness tira o pod do Service |
+
+O Docker e o Compose **não reiniciam** containers `unhealthy`. Um worker que morre é substituído pelo `multiwatch`, mas um worker travado (por exemplo, num GetMap de uma fonte que não responde) não: quando todos travam, só o healthcheck percebe.
+
+- **Podman:**
+  ```sh
+  podman run -d --health-cmd healthcheck --health-interval 30s \
+    --health-start-period 15s --health-on-failure restart ndscprm/mapserver:8.6.6
+  ```
+  No Quadlet (`.container`):
+  ```ini
+  [Container]
+  HealthCmd=healthcheck
+  HealthInterval=30s
+  HealthTimeout=5s
+  HealthStartPeriod=15s
+  HealthRetries=3
+  HealthOnFailure=restart
+  ```
+- **Kubernetes / OpenShift:**
+  ```yaml
+  startupProbe:
+    exec:
+      command: ["healthcheck"]
+    periodSeconds: 5
+    failureThreshold: 6
+  livenessProbe:
+    exec:
+      command: ["healthcheck"]
+    periodSeconds: 30
+    timeoutSeconds: 5
+  readinessProbe:
+    exec:
+      command: ["healthcheck"]
+    periodSeconds: 10
+    timeoutSeconds: 5
+  ```
+  Uma probe `tcpSocket` na 8080 também funciona, mas só confere que o `spawn-fcgi` abriu a porta, não que um worker responde.
 
 ## Testando sem servidor web
 
-Use o cliente `cgi-fcgi` (pacote `libfcgi-bin`) a partir de outro container na mesma rede:
+A imagem traz o cliente `cgi-fcgi`, então dá para fazer um pedido FastCGI de dentro do container:
 
 ```bash
-docker network create mstest
-docker run -d --name ms --network mstest docker.io/ndscprm/mapserver:8.6.6
-docker run --rm --network mstest debian:trixie-slim bash -c '
-  apt-get -qq update && apt-get -qq install -y libfcgi-bin >/dev/null
-  env -i REQUEST_METHOD=GET SCRIPT_NAME=/mapserver \
-    QUERY_STRING="map=DEFAULT&SERVICE=WMS&REQUEST=GetCapabilities" \
-    cgi-fcgi -bind -connect ms:8080'
+docker run -d --name ms docker.io/ndscprm/mapserver:8.6.6
+docker exec ms env -i REQUEST_METHOD=GET SCRIPT_NAME=/mapserver \
+  QUERY_STRING="map=DEFAULT&SERVICE=WMS&REQUEST=GetCapabilities" \
+  cgi-fcgi -bind -connect 127.0.0.1:8080
 ```
+
+Para a OGC API, a rota vai no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi/collections/countries/items` com `QUERY_STRING="f=json&limit=2"`). Para testar com HTTP, use o [exemplo com nginx](examples/README.md).
 
 ## Build
 
