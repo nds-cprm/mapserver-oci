@@ -17,7 +17,8 @@ Pendências de segurança e boas práticas levantadas na revisão do projeto.
 ## Prioridade baixa (boas práticas)
 
 - [ ] **Mapfile de exemplo na release.** O `default.map` é publicado como `DEFAULT`, com `wms_enable_request "*"` e `include_items "all"`. Documentar como remover o alias ou levar o exemplo só para a `-devel`.
-- [ ] **Decidir sobre o Python MapScript.** A release já usa a base sem Python (`ndscprm/gdal:<GDAL>-nopy`, desde 2026-10-25), e a compilação continua na `-py<PY>-devel`.
-  - **Se o MapScript não entrar:** avaliar compilar numa `-devel` sem Python, se a base vier a publicar uma, e tirar o `PYTHON_VERSION`.
-  - **Se entrar:** a release volta para `<GDAL>-py<PY>` (do mesmo build da `-devel`), e ainda dá para tirar `pip`, `setuptools` e `wheel` dela.
+- [ ] **Publicar a `release-py` (Python MapScript).** Na branch `mapscript`, o MapScript é compilado no `compile` e a `release-py` (base `<GDAL>-py<PY>`) o instala no venv, com o constraints em `/opt/geosgb/share/mapserver/constraints.txt`. Falta:
+  - decidir a tag (ex.: `<versão>-py<PY>`) e acrescentar a variante no `docker-image.yml` (`target: release-py`, `scan: true`, smoke test);
+  - acrescentar ao smoke test um `import mapscript` e a conferência do constraints;
+  - decidir se ela substitui a `release` sem Python ou se as duas são publicadas.
 - [ ] **Sem `.dockerignore`.** Os `COPY` são específicos e nada vaza para a imagem, mas o `.git` vai junto no contexto de build.

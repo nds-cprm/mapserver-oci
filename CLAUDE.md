@@ -8,7 +8,8 @@ Imagem de contêiner do **MapServer compilado a partir do código-fonte com supo
 
 O projeto é uma camada sobre a imagem base GDAL do SGB (`docker.io/ndscprm/gdal`). Usa duas variantes do mesmo GDAL:
 - **`<GDAL>-py<PY>-devel`**, usada para compilar (e base da imagem `-devel` deste projeto);
-- **`<GDAL>-nopy`** (release sem Python), usada como base da imagem final. Nada na release usa Python; enquanto não for decidido se o Python MapScript entra na imagem, a compilação continua na `-py<PY>-devel` (veja o TODO).
+- **`<GDAL>-nopy`** (release sem Python), usada como base da imagem final `release`, que não usa Python;
+- **`<GDAL>-py<PY>`** (release com Python), base do estágio `release-py`: a mesma imagem FastCGI mais o Python MapScript no venv (branch `mapscript`; ainda não publicada pelo CI).
 
 Os dois `FROM` precisam ter o mesmo `GDAL_VERSION`. Como as tags não têm data, confira que são do mesmo build do GDAL: em 2026-10-25, a `libgdal.so.38.3.12.4` da `3.12.4-nopy` era idêntica (md5) à da `3.12.4-py3.12`.
 
@@ -80,7 +81,12 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
   - proteções de compilação `HARDENING_CFLAGS`/`HARDENING_LDFLAGS` (`ARG` do estágio, com os mesmos padrões da base, porque `ARG` não é herdado da imagem base) em `CMAKE_{C,CXX}_FLAGS` e `CMAKE_{SHARED,EXE,MODULE}_LINKER_FLAGS`: o gcc do Debian não liga stack protector, `_FORTIFY_SOURCE` nem RELRO completo por padrão, e o `mapserv` processa requisições não confiáveis. Ao mudar as flags na base, mudar aqui também. Build paralelo com `--parallel "$(nproc)"`;
   - o `install_manifest.txt` é copiado para `${BASE_DIR}/share/mapserver/install_manifest.txt` (o `staging` depende dele); depois vêm `rm -rf build/` e `ldconfig`;
   - `-DMAPSERVER_CONFIG_FILE=${BASE_DIR}/etc/mapserver.conf` é obrigatório: sem ele, o `GNUInstallDirs` compila um caminho em `/etc/opt/...` (prefixo em `/opt`) e todo request falha com `msLoadConfig(): Unable to access file`;
-  - fica **sem** cURL, Cairo/SVG-Cairo, HarfBuzz, FriBiDi, GIF, SOS, Protobuf-c e clientes WMS/WFS, e **com** libxml2 e Oracle Spatial.
+  - fica **sem** cURL, Cairo/SVG-Cairo, HarfBuzz, FriBiDi, GIF, SOS, Protobuf-c e clientes WMS/WFS, e **com** libxml2, Oracle Spatial e Python MapScript.
+- **Python MapScript** (`-DWITH_PYTHON=ON`, `-DPython_EXECUTABLE=${BASE_DIR}/venv/bin/python`):
+  - o CMake gera o módulo `_mapscript` com o SWIG da base (4.3), com as mesmas flags (hardening e build type), e um `setup.py` que só empacota esse `.so` (não compila nada);
+  - o wheel (`mapscript-<versão>-cp<PY>-cp<PY>-linux_<arch>.whl`, cerca de 400 KB) sai com `pip wheel --no-build-isolation --no-deps -w /wheels` em `build/src/mapscript/python`: offline, com o setuptools e o wheel fixados com hash pela base;
+  - o target `install` também roda `pip install --prefix=${BASE_DIR}`, que põe o MapScript em `${BASE_DIR}/lib/python3.*`, fora do venv e fora do `install_manifest.txt`. Esse diretório é apagado e o wheel é instalado no venv (`--no-index --no-deps`), então a `-devel` também tem o MapScript; o `RUN` termina com um `import mapscript`;
+  - o target `pythonmapscript-wheel` do CMake (venv próprio, `pip install -r requirements-dev.txt` da internet, testes) **não** é usado.
 
 ### `build` (imagem `-devel`, `FROM compile`)
 - Acrescenta à compilação o mesmo ambiente FastCGI da release, para rodar e depurar o MapServer na imagem de desenvolvimento:
@@ -101,7 +107,14 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
   3. mapeia cada biblioteca para um pacote com `dpkg -S` (tenta também o caminho sem `/usr`).
 - O `ldd` também lista as dependências indiretas (via GDAL), então a lista é longa, mas o `apt` só instala o que falta. Hoje isso é `libfcgi0t64`, `libfreetype6` e `libpcre2-posix3`.
 - O build **falha** se algum `ldd` der `not found` ou se uma biblioteca não pertencer a nenhum pacote (ex.: algo em `/usr/local`).
+- Gera `/tmp/wheels` para a `release-py`: o wheel do MapScript desempacotado (`python -m wheel unpack`), com `strip --strip-debug` no `.so` e empacotado de novo (`wheel pack` reescreve os hashes do `RECORD`). Só faz diferença com `RelWithDebInfo`. O `_mapscript` não entra no `ldd` acima: ele linka a `libpython` de `/usr/local`, que não é de pacote Debian; as dependências dele são as da `libmapserver`, e a `release-py` confere com um `import mapscript`.
 - Ao adicionar uma dependência no `build`, não é preciso mexer na release.
+
+### `release-py` (`ndscprm/gdal:${GDAL_VERSION}-py${PYTHON_VERSION}`)
+- Igual à `release` (pacotes do `staging`, arquivos do MapServer, configuração, `start.sh`, healthcheck, dados, `ENV`, `USER 1000:0`, `HEALTHCHECK` e `CMD`), mas sobre a base com Python, do mesmo build do GDAL da `-devel`. Fica **antes** da `release`, que continua sendo o último estágio (alvo padrão).
+- Instala o wheel do `staging` (bind mount de `/tmp/wheels`) no venv da base com `--no-index --no-deps` e `-c` com os pacotes da base, depois `pip check` e `import mapscript`.
+- **Constraints**: grava `${BASE_DIR}/share/mapserver/constraints.txt` com os pacotes do venv depois da instalação (os da base mais o `mapscript`), para imagens derivadas: `pip install -c /opt/geosgb/share/mapserver/constraints.txt ...` não troca nenhum deles. Usa `pip list --format=freeze`, e não `pip freeze`, porque pacotes instalados de wheel local (o `pyarrow` da base e o `mapscript`) sairiam como `nome @ file:///tmp/...`, caminho que não existe em outra imagem. O build falha se o `mapscript==` não estiver no arquivo. Não define `PIP_CONSTRAINT`: o uso fica a critério da imagem derivada.
+- Testada com o `smoke-test.sh` da release (o mesmo FastCGI) e com `import mapscript` como UID arbitrário e `--read-only`. Tamanho: cerca de 620 MB (a `release` tem cerca de 450 MB).
 
 ### `release` (`ndscprm/gdal:${GDAL_VERSION}-nopy`)
 - **Herdado da base**:
