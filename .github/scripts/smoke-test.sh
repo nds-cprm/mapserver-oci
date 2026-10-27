@@ -107,6 +107,9 @@ get '/mapserver?map=DEFAULT&SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=coun
 # PATH_INFO split by nginx (fastcgi_split_path_info)
 get '/mapserver/DEFAULT/ogcapi/collections/countries/items?f=json&limit=2' | grep -q '"numberReturned":2' \
     || fail "OGC API items through nginx"
+# only /mapserver and /mapserver/... go to MapServer
+"$DOCKER" exec "$NAME-nginx" wget -q -O /dev/null 'http://127.0.0.1:8080/mapserverfoo?map=DEFAULT' 2>&1 | grep -q 404 \
+    || fail "/mapserverfoo not answered with 404 by nginx"
 get '/mapserver?map=/etc/passwd' | grep -q 'fails to validate' || fail "map= outside MS_MAP_PATTERN accepted"
 sleep 1
 "$DOCKER" logs "$NAME" 2>&1 | grep -q 'msCGILoadMap().*fails to validate' || fail "MapServer error not in the container log"
