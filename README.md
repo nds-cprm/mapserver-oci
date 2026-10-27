@@ -106,7 +106,7 @@ O `docker logs` também mostra a inicialização e os eventos do `multiwatch` (e
 
 - **Usuário padrão:** a imagem roda como `1000:0`, sem privilégios. A imagem `-devel` continua como root.
 - **UID arbitrário:** `docker run --user <uid>`, `runAsUser` no Kubernetes e OpenShift são suportados. Quando a UID não existe no `/etc/passwd` (caso do 1000), o entrypoint da imagem base cria um usuário virtual (`sgb`, variável `USER_NAME`) via `nss_wrapper`.
-- **Escrita em `/var/lib/mapserver`:** o diretório (`HOME`) é gravável pelo grupo 0. Usuários com GID 0, que é o padrão nesses ambientes, podem escrever nele. Com outro GID (ex.: `--user 12345:12345`), o `HOME` continua sendo `/var/lib/mapserver`, mas sem permissão de escrita. O MapServer não grava no `HOME`, então a imagem funciona assim mesmo.
+- **`/var/lib/mapserver` somente leitura:** o diretório (`HOME`) e os dados de exemplo pertencem ao root, sem escrita para mais ninguém, nem para o grupo 0. É ali que os mapfiles são procurados (`MS_MAP_PATTERN`), então o processo do MapServer não pode gravar um mapfile. Ele continua sendo o `HOME` de qualquer usuário, também no passwd virtual do `nss_wrapper`, mesmo sem escrita: o MapServer não grava no `HOME`, e o que precisa de escrita fica no `/tmp`.
 - **Sistema de arquivos raiz somente leitura** (`--read-only`, `read_only: true`, `readOnlyRootFilesystem: true`): suportado, desde que `/tmp` seja gravável (`--tmpfs /tmp`; no Kubernetes, um `emptyDir`). O `nss_wrapper` grava ali o usuário virtual, e o `start.sh`, o FIFO do log de erros. Sem `/tmp` gravável, o container não inicia quando a UID não existe no `/etc/passwd`.
 
 ## Healthcheck

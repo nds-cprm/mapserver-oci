@@ -2,12 +2,6 @@
 
 Pendências de segurança e boas práticas levantadas na revisão do projeto.
 
-## Prioridade alta
-
-- [ ] **Dados graváveis pelo processo.** O estágio `build` dá modo `775`/`664` a `/var/lib/mapserver/data`, com escrita para o grupo 0. Com `--user <uid>:0`, o `mapserv` pode reescrever o `default.map`, o `fonts.txt` e os shapefiles; rodando como root (`--user 0`), pode reescrever qualquer coisa. Somado ao `MS_MAP_PATTERN "^/var/lib/mapserver/"`, um arquivo `.map` gravado ali pode ser carregado como mapfile.
-  - Manter `775` só em `/var/lib/mapserver` (necessário para o `HOME` e o `nss_wrapper`) e deixar `data/` com `755`/`644`.
-  - Restringir o padrão, por exemplo `MS_MAP_PATTERN "^/var/lib/mapserver/data/.*\.map$"`.
-
 ## Prioridade média (CI e cadeia de suprimentos)
 
 - [ ] **Workflow reutilizável por `@main`.** O CI chama o `oci-image.yml` do gdal-oci por `@main` (as actions dele já são fixadas por SHA e atualizadas pelo Dependabot de lá), então um commit no `main` do gdal-oci muda o CI daqui sem revisão. Quando o gdal-oci tiver uma tag do workflow, trocar o `uses:` por ela (ou pelo SHA, com a tag em comentário) e criar um `.github/dependabot.yml` com `package-ecosystem: github-actions` para propor as atualizações.

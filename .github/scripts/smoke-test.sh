@@ -56,6 +56,12 @@ for option in SUPPORTS=FASTCGI INPUT=ORACLESPATIAL INPUT=OGR SUPPORTS=OGCAPI_SER
     echo "$version" | grep -q "$option" || fail "mapserv -v without $option"
 done
 [ "$("$DOCKER" image inspect "$IMAGE" --format '{{.Config.User}}')" = 1000:0 ] || fail "image user is not 1000:0"
+# HOME is /var/lib/mapserver (read-only) for any user, also in the nss_wrapper passwd entry
+for user in 1000:0 12345:12345; do
+    home=$("$DOCKER" run --rm -e ENTRYPOINT_QUIET_LOGS=1 --user "$user" --read-only --tmpfs /tmp "$IMAGE" \
+        sh -c 'echo "$HOME:$(getent passwd "$(id -u)" | cut -d: -f6)"')
+    [ "$home" = /var/lib/mapserver:/var/lib/mapserver ] || fail "HOME:passwd home of $user is $home"
+done
 
 echo "## CGI requests"
 cgi 'map=DEFAULT&SERVICE=WMS&REQUEST=GetCapabilities' | grep -q '<WMS_Capabilities' || fail "WMS GetCapabilities"
@@ -87,6 +93,10 @@ workers=$("$DOCKER" exec "$NAME" sh -c 'n=0; for p in /proc/[0-9]*; do
         [ "$(awk "/^Uid:/ { print \$2 }" "$p/status")" = 12345 ] && n=$((n + 1));;
     esac; done; echo $n')
 [ "$workers" = 4 ] || fail "$workers mapserv workers running as 12345 (expected 4)"
+# mapfiles are loaded from /var/lib/mapserver (MS_MAP_PATTERN): nothing there may be writable by the server,
+# also with GID 0 (checked by mode and owner, as --read-only would hide it)
+writable=$("$DOCKER" exec "$NAME" find /var/lib/mapserver \( -perm /022 -o ! -user 0 \) -print)
+[ -z "$writable" ] || fail "writable by the server under /var/lib/mapserver: $writable"
 
 "$DOCKER" run -d --name "$NAME-nginx" --network "$NAME" --read-only --tmpfs /tmp \
     -v "$NGINX_CONF:/etc/nginx/conf.d/default.conf:ro" "$NGINX_IMAGE" > /dev/null

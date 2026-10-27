@@ -135,10 +135,11 @@ COPY --chmod=755 fcgi/start.sh /start.sh
 COPY --chmod=755 docker/healthcheck /usr/local/bin/healthcheck
 COPY data /var/lib/mapserver/data
 
-# Sample data with deterministic modes (group-writable, nothing executable), regardless of the checkout umask;
-# the release copies /var/lib/mapserver from here
-RUN find /var/lib/mapserver -type d -exec chmod 775 {} + && \
-    find /var/lib/mapserver -type f -exec chmod 664 {} +
+# Sample data with deterministic modes (owned by root, writable by nobody else, nothing executable), regardless
+# of the checkout umask: mapfiles are loaded from /var/lib/mapserver (MS_MAP_PATTERN), so the server must not be
+# able to write one there. The release copies /var/lib/mapserver from here
+RUN find /var/lib/mapserver -type d -exec chmod 755 {} + && \
+    find /var/lib/mapserver -type f -exec chmod 644 {} +
 
 # a single worker by default, easier to follow with gdb (installed on demand: apt-get install gdb;
 # gdb -p needs --cap-add=SYS_PTRACE)
@@ -228,10 +229,12 @@ COPY etc/mapserver.conf etc/healthcheck.map ${BASE_DIR}/etc/
 COPY --chmod=755 fcgi/start.sh /start.sh
 # health check command shared by every runtime (see HEALTHCHECK below)
 COPY --chmod=755 docker/healthcheck /usr/local/bin/healthcheck
+# HOME=/var/lib/mapserver, read-only, for every user (the nss_wrapper script would switch it to /tmp);
+# not executable, so the entrypoint sources it and its HOME reaches the container command
+COPY --chmod=644 docker/20-mapserver-home.sh /docker-entrypoint.d/20-mapserver-home.sh
 
-# non-root users created at startup (arbitrary UID, nss_wrapper) run with GID 0: let them write to HOME
-RUN ldconfig && \
-    install -d -m 775 /var/lib/mapserver
+# libmapserver in the ld.so cache (the MapServer ELF files also have RUNPATH=${BASE_DIR}/lib)
+RUN ldconfig
 
 # MapScript from the wheel of the staging stage, offline and without dependencies (it has none), so no package
 # of the base image changes. Then the constraints of the resulting venv (base image packages + mapscript) are
@@ -246,7 +249,7 @@ RUN --mount=type=bind,from=staging,source=/tmp/wheels,target=/tmp/wheels \
     pip list --format=freeze > "${BASE_DIR}/share/mapserver/constraints.txt" && \
     grep -q '^mapscript==' "${BASE_DIR}/share/mapserver/constraints.txt"
 
-# (copying the parent keeps the mode of data/ itself; COPY would create a 755 destination)
+# sample data with the modes set in build: nothing writable by the server (/var/lib/mapserver itself is created 755)
 COPY --from=build /var/lib/mapserver/ /var/lib/mapserver/
 
 WORKDIR /var/lib/mapserver
@@ -258,7 +261,7 @@ ENV MAPSERVER_FCGI_PORT=8080 \
 
 # unprivileged by default. UID 1000 is not in /etc/passwd on purpose: the base image nss_wrapper creates
 # a virtual user for it at start (USER_NAME, default sgb), as it does for arbitrary UIDs (OpenShift).
-# Group 0 is the one that can write to HOME
+# HOME is /var/lib/mapserver for every user, read-only whatever the GID (docker/20-mapserver-home.sh)
 USER 1000:0
 
 # FastCGI, not HTTP: put a web server in front, on the same network, and don't publish the port
@@ -307,12 +310,14 @@ COPY etc/mapserver.conf etc/healthcheck.map ${BASE_DIR}/etc/
 COPY --chmod=755 fcgi/start.sh /start.sh
 # health check command shared by every runtime (see HEALTHCHECK below)
 COPY --chmod=755 docker/healthcheck /usr/local/bin/healthcheck
+# HOME=/var/lib/mapserver, read-only, for every user (the nss_wrapper script would switch it to /tmp);
+# not executable, so the entrypoint sources it and its HOME reaches the container command
+COPY --chmod=644 docker/20-mapserver-home.sh /docker-entrypoint.d/20-mapserver-home.sh
 
-# non-root users created at startup (arbitrary UID, nss_wrapper) run with GID 0: let them write to HOME
-RUN ldconfig && \
-    install -d -m 775 /var/lib/mapserver
+# libmapserver in the ld.so cache (the MapServer ELF files also have RUNPATH=${BASE_DIR}/lib)
+RUN ldconfig
 
-# (copying the parent keeps the mode of data/ itself; COPY would create a 755 destination)
+# sample data with the modes set in build: nothing writable by the server (/var/lib/mapserver itself is created 755)
 COPY --from=build /var/lib/mapserver/ /var/lib/mapserver/
 
 WORKDIR /var/lib/mapserver
@@ -324,7 +329,7 @@ ENV MAPSERVER_FCGI_PORT=8080 \
 
 # unprivileged by default. UID 1000 is not in /etc/passwd on purpose: the base image nss_wrapper creates
 # a virtual user for it at start (USER_NAME, default sgb), as it does for arbitrary UIDs (OpenShift).
-# Group 0 is the one that can write to HOME
+# HOME is /var/lib/mapserver for every user, read-only whatever the GID (docker/20-mapserver-home.sh)
 USER 1000:0
 
 # FastCGI, not HTTP: put a web server in front, on the same network, and don't publish the port
