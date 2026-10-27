@@ -76,7 +76,7 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
   - é descoberta com `echo ${BASE_DIR}/oracle/instantclient_*` (o build falha se não for diretório);
   - é passada só para o `cmake`, que é o único lugar onde é lida (`FindORACLE.cmake`). Não existe `ENV ORACLE_HOME`.
 - Compilação:
-  - CMake `RelWithDebInfo` com `CMAKE_{C,CXX}_FLAGS_RELWITHDEBINFO="-O3 -g -DNDEBUG"`, num subshell `( cd build && ... )`, com instalação em `${BASE_DIR}`. Como na base GDAL, é a otimização do `Release` com símbolos de debug: o padrão do `RelWithDebInfo` seria `-O2`. Os símbolos ficam na `-devel` (`libmapserver` com cerca de 29 MB) e o `staging` os remove da release (cerca de 4 MB);
+  - CMake com `CMAKE_BUILD_TYPE=${MAPSERVER_BUILD_TYPE}` (como o `GDAL_BUILD_TYPE` da base; outro valor aborta o build), num subshell `( cd build && ... )`, com instalação em `${BASE_DIR}`. O padrão `Release` (`-O3 -DNDEBUG`) é o da `-devel` publicada, sem símbolos de debug (`libmapserver` com cerca de 4 MB, como na release). `RelWithDebInfo` (`CMAKE_{C,CXX}_FLAGS_RELWITHDEBINFO="-O3 -g -DNDEBUG"`, a mesma otimização, porque o padrão dele seria `-O2`) só acrescenta os símbolos (`libmapserver` com cerca de 29 MB), para uma `-devel` construída localmente para depurar. O código-fonte fica em `${BASE_DIR}/src` nos dois casos, e o `staging` remove os símbolos da release, que sai igual;
   - proteções de compilação `HARDENING_CFLAGS`/`HARDENING_LDFLAGS` (`ARG` do estágio, com os mesmos padrões da base, porque `ARG` não é herdado da imagem base) em `CMAKE_{C,CXX}_FLAGS` e `CMAKE_{SHARED,EXE,MODULE}_LINKER_FLAGS`: o gcc do Debian não liga stack protector, `_FORTIFY_SOURCE` nem RELRO completo por padrão, e o `mapserv` processa requisições não confiáveis. Ao mudar as flags na base, mudar aqui também. Build paralelo com `--parallel "$(nproc)"`;
   - o `install_manifest.txt` é copiado para `${BASE_DIR}/share/mapserver/install_manifest.txt` (o `staging` depende dele); depois vêm `rm -rf build/` e `ldconfig`;
   - `-DMAPSERVER_CONFIG_FILE=${BASE_DIR}/etc/mapserver.conf` é obrigatório: sem ele, o `GNUInstallDirs` compila um caminho em `/etc/opt/...` (prefixo em `/opt`) e todo request falha com `msLoadConfig(): Unable to access file`;
@@ -94,7 +94,7 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
 
 ### `staging` (descartável, `FROM compile`)
 - Copia **só os arquivos do MapServer** para `/tmp/mapserver`, com os caminhos absolutos preservados: `tar` com `--files-from` lendo o `install_manifest.txt` e `--transform` para mudar o destino. Fica tudo que está no manifesto, como `bin/mapserv` e utilitários, `lib/libmapserver.so*`, `share/mapserver/ogcapi` e `etc/mapserver-sample.conf`. O GDAL e o Oracle não são copiados, porque já estão na release da base.
-- Remove `include`, `lib/pkgconfig` e `share/mapserver/cmake`, e faz `strip --strip-debug` nos ELF, o que tira os símbolos de debug do `RelWithDebInfo`.
+- Remove `include`, `lib/pkgconfig` e `share/mapserver/cmake`, e faz `strip --strip-debug` nos ELF, o que tira os símbolos de debug quando `MAPSERVER_BUILD_TYPE=RelWithDebInfo` (com `Release`, não há o que tirar).
 - Gera `/tmp/runtime-packages.txt`:
   1. roda `ldd` nos ELF do MapServer;
   2. resolve os caminhos com `realpath`, descartando o que está em `${BASE_DIR}`;
@@ -189,7 +189,7 @@ Fatos verificados nas tags `3.12.4-py3.12-devel`, `3.12.4-py3.12` e `3.12.4-nopy
 - Só o GDAL é compilado; PROJ 9.6 e GEOS 3.13 vêm do Debian.
 - O GDAL tem os drivers OCI, Arrow/Parquet, PostGIS, GPKG, OpenFileGDB, KML, Elasticsearch e WMS/WFS/WCS/OGC API, mais os drivers núcleo (Shapefile etc.).
 - Bibliotecas sem RPATH: `/opt/geosgb/lib` e o diretório do Oracle estão em `/etc/ld.so.conf.d/`. O `mapserv` tem `RUNPATH=/opt/geosgb/lib`.
-- Para usar o `gdb` na imagem `-devel`: `docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined ...` e instalar o `gdb` na hora, como root (`apt-get update && apt-get install -y gdb`): a base `ndscprm/gdal` não o traz mais, nem os símbolos do GDAL (o padrão dela é `GDAL_BUILD_TYPE=Release`). Com os símbolos do `RelWithDebInfo` do MapServer e o código-fonte em `${BASE_DIR}/src`, o backtrace mostra arquivo e linha no MapServer (ex.: `main (...) at .../src/apps/mapserv.c:276`); os quadros do GDAL só têm o nome da função, a menos que a base seja construída com `GDAL_BUILD_TYPE=RelWithDebInfo`. Com `-O3`, algumas variáveis aparecem como `<optimized out>`.
+- Para usar o `gdb` na imagem `-devel`: `docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined ...` e instalar o `gdb` na hora, como root (`apt-get update && apt-get install -y gdb`): a base `ndscprm/gdal` não o traz mais, nem os símbolos do GDAL (o padrão dela é `GDAL_BUILD_TYPE=Release`). A `-devel` publicada (`MAPSERVER_BUILD_TYPE=Release`) não tem símbolos: o backtrace mostra só nomes de função. Com uma `-devel` construída com `--build-arg MAPSERVER_BUILD_TYPE=RelWithDebInfo`, o código-fonte em `${BASE_DIR}/src` dá arquivo e linha no MapServer (ex.: `main (...) at .../src/apps/mapserv.c:276`); os quadros do GDAL só têm o nome da função, a menos que a base também seja construída com `GDAL_BUILD_TYPE=RelWithDebInfo`. Com `-O3`, algumas variáveis aparecem como `<optimized out>`.
 
 ## Convenções
 

@@ -194,7 +194,7 @@ docker exec -u 0 mapserver-devel sh -c 'apt-get update && apt-get install -y gdb
 docker exec -it mapserver-devel sh -c 'gdb -p $(pgrep -f "^/opt/geosgb/bin/mapserv")'
 ```
 
-O MapServer da `-devel` tem símbolos de debug e o código-fonte, então o backtrace mostra arquivo e linha no código dele. O GDAL da imagem base publicada não tem símbolos: os quadros do GDAL aparecem só com o nome da função. Para depurar dentro do GDAL, construa localmente a `devel` da base com `GDAL_BUILD_TYPE=RelWithDebInfo` (README do gdal-oci, "Depuração com gdb"), marque-a com a tag que o `FROM` usa (`docker tag <imagem> docker.io/ndscprm/gdal:3.12.4-py3.12-devel`) e construa a `-devel` daqui sem `--pull`.
+A `-devel` publicada tem o código-fonte do MapServer em `/opt/geosgb/src`, mas não os símbolos de debug, nem do MapServer nem do GDAL da imagem base: o backtrace mostra só nomes de função. Para ter arquivo e linha no MapServer, construa a `-devel` localmente com `--build-arg MAPSERVER_BUILD_TYPE=RelWithDebInfo` (`docker build --target build --build-arg MAPSERVER_BUILD_TYPE=RelWithDebInfo -t mapserver:debug .`). Para depurar também dentro do GDAL, construa localmente a `devel` da base com `GDAL_BUILD_TYPE=RelWithDebInfo` (README do gdal-oci, "Depuração com gdb"), marque-a com a tag que o `FROM` usa (`docker tag <imagem> docker.io/ndscprm/gdal:3.12.4-py3.12-devel`) e construa a `-devel` daqui sem `--pull`.
 
 As duas tags são multiplataforma (`linux/amd64` e `linux/arm64`). O Docker escolhe sozinho a variante da máquina. Para construir uma arquitetura específica localmente, use `docker buildx build --platform linux/arm64 ...`; para isso, a imagem base também precisa existir nessa arquitetura.
 
@@ -213,6 +213,7 @@ docker build --target build -t docker.io/ndscprm/mapserver:8.6.6-devel .
 | `PYTHON_VERSION` | `3.12` | Versão do Python da imagem base de compilação (`-devel`); a imagem final não tem Python |
 | `MAPSERVER_VERSION` | `8.6.6` | Versão do MapServer |
 | `MAPSERVER_SHA256` | SHA256 do `mapserver-8.6.6.tar.gz` | Atualizar junto com `MAPSERVER_VERSION` |
+| `MAPSERVER_BUILD_TYPE` | `Release` | `Release` (sem símbolos de debug) ou `RelWithDebInfo` (acrescenta os símbolos à `-devel`, para depurar com o gdb). O código-fonte fica na `-devel` nos dois casos, e a release sai igual |
 | `HARDENING_CFLAGS` / `HARDENING_LDFLAGS` | `-fstack-protector-strong -fstack-clash-protection -D_FORTIFY_SOURCE=3` / `-Wl,-z,relro,-z,now` | Proteções de compilação do MapServer, as mesmas da base `ndscprm/gdal` (o gcc do Debian não as liga por padrão) |
 
 As tags `ndscprm/gdal:<GDAL_VERSION>-py<PYTHON_VERSION>-devel` (build e imagem `-devel`) e `ndscprm/gdal:<GDAL_VERSION>-nopy` (imagem final, sem Python) precisam existir.

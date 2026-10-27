@@ -29,11 +29,20 @@ RUN apt-get -y update && \
     apt-get -y autoremove && \
     rm -rf /var/lib/apt/lists/*
 
+# Release (default, also the published -devel): -O3, no debug symbols. RelWithDebInfo: the same -O3 code plus
+# debug symbols, for a -devel built locally to debug MapServer (the staging stage strips the release anyway, so
+# its binaries are the same). The source tree stays in the -devel either way
+ARG MAPSERVER_BUILD_TYPE=Release
+
 # Compile and install Mapserver
-RUN MAPSERVER_URL=https://github.com/MapServer/MapServer/releases/download/rel-${MAPSERVER_VERSION//./-}/mapserver-${MAPSERVER_VERSION}.tar.gz && \
+RUN case "${MAPSERVER_BUILD_TYPE}" in \
+        Release | RelWithDebInfo) ;; \
+        *) echo "MAPSERVER_BUILD_TYPE must be Release or RelWithDebInfo, not '${MAPSERVER_BUILD_TYPE}'" >&2; exit 1 ;; \
+    esac && \
+    MAPSERVER_URL=https://github.com/MapServer/MapServer/releases/download/rel-${MAPSERVER_VERSION//./-}/mapserver-${MAPSERVER_VERSION}.tar.gz && \
     wget -q "${MAPSERVER_URL}" && \
     echo "${MAPSERVER_SHA256}  mapserver-${MAPSERVER_VERSION}.tar.gz" | sha256sum -c - && \
-    # keep the source tree in the image for debugging and building GDAL-dependent code
+    # keep the source tree in the image for reference and for debugging (RelWithDebInfo symbols point to it)
     mkdir -p "${BASE_DIR}/src" && \
     tar -zxf "mapserver-${MAPSERVER_VERSION}.tar.gz" -C "${BASE_DIR}/src" && \
     rm "mapserver-${MAPSERVER_VERSION}.tar.gz" && \
@@ -53,9 +62,8 @@ RUN MAPSERVER_URL=https://github.com/MapServer/MapServer/releases/download/rel-$
         -DCMAKE_SHARED_LINKER_FLAGS="${HARDENING_LDFLAGS}" \
         -DCMAKE_EXE_LINKER_FLAGS="${HARDENING_LDFLAGS}" \
         -DCMAKE_MODULE_LINKER_FLAGS="${HARDENING_LDFLAGS}" \
-        # debug symbols for the -devel image, with Release optimization (RelWithDebInfo defaults to -O2);
-        # the staging stage strips them from the release
-        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        # Release is -O3 -DNDEBUG; RelWithDebInfo gets the same -O3 (its default is -O2) plus -g
+        -DCMAKE_BUILD_TYPE=${MAPSERVER_BUILD_TYPE} \
         -DCMAKE_C_FLAGS_RELWITHDEBINFO="-O3 -g -DNDEBUG" \
         -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g -DNDEBUG" \
         -DCMAKE_INSTALL_PREFIX=${BASE_DIR} \
