@@ -20,9 +20,10 @@ services:
       - /tmp
     environment:
       MAPSERVER_WORKERS: 4
-    # your own mapfiles and data (map=/var/lib/mapserver/maps/<file>.map):
+    # your own mapfiles and data over the whole /var/lib/mapserver, read-only
+    # (map=/var/lib/mapserver/<file>.map); it hides the sample map (map=DEFAULT):
     # volumes:
-    #   - ./maps:/var/lib/mapserver/maps:ro
+    #   - ./mapserver:/var/lib/mapserver:ro
     healthcheck:
       test: ["CMD", "healthcheck"]
       interval: 30s

@@ -32,9 +32,9 @@ Com o mapfile de exemplo da imagem (`map=DEFAULT`, camada `countries`):
 
 ## Mapfiles próprios
 
-Descomente o `volumes:` do serviço `mapserver` e ponha os mapfiles e os dados em `nginx/maps/`. Eles ficam em `/var/lib/mapserver/maps` e são pedidos por caminho: `map=/var/lib/mapserver/maps/<arquivo>.map`. Para um nome curto (`map=<NOME>`), monte um `mapserver.conf` próprio com um alias em `MAPS`, a partir do da imagem, e mantenha as opções fixadas e o alias `HEALTHCHECK` (veja [Mapfiles e configuração](../README.md#mapfiles-e-configuração)).
+Descomente o `volumes:` do serviço `mapserver` e ponha os mapfiles e os dados em `nginx/mapserver/`. Eles substituem o `/var/lib/mapserver` inteiro e são pedidos por caminho: `map=/var/lib/mapserver/<arquivo>.map`. O mapfile de demonstração fica escondido, e o `map=DEFAULT` deixa de funcionar. Para um nome curto (`map=<NOME>`), monte um `mapserver.conf` próprio com um alias em `MAPS`, a partir do da imagem, e mantenha as opções fixadas e o alias `HEALTHCHECK` (veja [Mapfiles e configuração](../README.md#mapfiles-e-configuração)).
 
-Monte os mapfiles somente leitura (`:ro`): o MapServer carrega qualquer `.map` em `/var/lib/mapserver`, então o processo dele não deve conseguir gravar ali. A imagem não dá escrita nesse diretório a ninguém além do root, mas um volume gravável montado nele daria.
+Monte os mapfiles somente leitura (`:ro`): o MapServer carrega qualquer `.map` em `/var/lib/mapserver`, então o processo dele não deve conseguir gravar ali. A imagem não dá escrita nesse diretório a ninguém além do root, mas um volume gravável montado nele daria. Volume, ConfigMap e Secret no Kubernetes: [Seus mapfiles](../README.md#seus-mapfiles-volume-configmap-ou-secret).
 
 ## O `nginx.conf`
 

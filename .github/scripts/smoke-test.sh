@@ -17,9 +17,12 @@ NAME=mapserver-smoke-$$
 NGINX_IMAGE=docker.io/nginxinc/nginx-unprivileged:1.30-alpine
 NGINX_CONF=$(cd "$(dirname "$0")/../../examples/nginx/conf/nginx" && pwd)/nginx.conf
 
+VOLUME=
+
 cleanup() {
     "$DOCKER" rm -f "$NAME" "$NAME-nginx" > /dev/null 2>&1 || :
     "$DOCKER" network rm "$NAME" > /dev/null 2>&1 || :
+    if [ -n "$VOLUME" ]; then rm -rf "$VOLUME"; fi
 }
 trap cleanup EXIT
 
@@ -69,6 +72,45 @@ cgi 'map=DEFAULT&SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=countries&STYLE
     | head -c 100 | grep -aq '^Content-Type: image/png' || fail "WMS GetMap"
 cgi 'f=json&limit=2' /DEFAULT/ogcapi/collections/countries/items | grep -q '"numberReturned":2' || fail "OGC API items"
 cgi 'map=/etc/passwd&SERVICE=WMS&REQUEST=GetCapabilities' | grep -q 'fails to validate' || fail "map= outside MS_MAP_PATTERN accepted"
+
+echo "## mapfiles mounted over /var/lib/mapserver (Kubernetes ConfigMap/Secret layout)"
+# as the kubelet mounts them: each key is a symlink to ..data/<key>, ..data a symlink to a timestamped
+# directory. The mount hides the sample data, so map=DEFAULT fails; HOME stays /var/lib/mapserver
+VOLUME=$(mktemp -d)
+mkdir "$VOLUME/..2026_01_01_00_00_00.000000000"
+cat > "$VOLUME/..2026_01_01_00_00_00.000000000/volume.map" << 'EOF'
+MAP
+  NAME "volume-test"
+  SIZE 10 10
+  EXTENT 0 0 10 10
+  IMAGETYPE png
+  # relative to the mapfile, through the symlinks
+  INCLUDE "box.inc.map"
+END
+EOF
+cat > "$VOLUME/..2026_01_01_00_00_00.000000000/box.inc.map" << 'EOF'
+LAYER
+  NAME "box"
+  TYPE POLYGON
+  STATUS ON
+  FEATURE POINTS 1 1 9 1 9 9 1 9 1 1 END END
+  CLASS STYLE COLOR 255 0 0 END END
+END
+EOF
+ln -s ..2026_01_01_00_00_00.000000000 "$VOLUME/..data"
+ln -s ..data/volume.map "$VOLUME/volume.map"
+ln -s ..data/box.inc.map "$VOLUME/box.inc.map"
+chmod -R a+rX "$VOLUME"
+# z: SELinux label for the container (Podman, Docker on Fedora/RHEL); ignored elsewhere
+volume_run() {
+    "$DOCKER" run --rm -e ENTRYPOINT_QUIET_LOGS=1 --user 12345:0 --read-only --tmpfs /tmp \
+        -v "$VOLUME:/var/lib/mapserver:ro,z" -e REQUEST_METHOD=GET -e SCRIPT_NAME=/mapserver "$@"
+}
+volume_run -e QUERY_STRING='map=/var/lib/mapserver/volume.map&mode=map' "$IMAGE" mapserv | head -c 100 \
+    | grep -aq '^Content-Type: image/png' || fail "mapfile mounted over /var/lib/mapserver"
+volume_run -e QUERY_STRING='map=DEFAULT&SERVICE=WMS&REQUEST=GetCapabilities' "$IMAGE" mapserv \
+    | grep -q 'Unable to access file' || fail "map=DEFAULT with the sample data hidden"
+[ "$(volume_run "$IMAGE" sh -c 'echo "$HOME"')" = /var/lib/mapserver ] || fail "HOME with a volume over /var/lib/mapserver"
 
 echo "## FastCGI server (--user 12345:0, --read-only) behind nginx"
 "$DOCKER" network create "$NAME" > /dev/null

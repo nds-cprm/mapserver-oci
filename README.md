@@ -20,7 +20,7 @@ A imagem fala **FastCGI na porta 8080**, não HTTP. Coloque na frente um servido
 ```bash
 docker network create mapserver
 docker run -d --name mapserver --network mapserver \
-  -v /caminho/dos/mapfiles:/var/lib/mapserver/maps:ro \
+  -v /caminho/dos/mapfiles:/var/lib/mapserver:ro \
   docker.io/ndscprm/mapserver:8.6.6
 # o servidor web, na mesma rede, aponta para mapserver:8080
 ```
@@ -64,7 +64,7 @@ O MapServer 8 exige um arquivo de configuração. O arquivo da imagem ([etc/maps
   - `MS_MAPFILE ""`: não há mapfile padrão; um pedido sem `map=` falha com `Filename validation failed`;
   - `MS_CONTEXT_PATTERN "^$"` e `MS_CONTEXT_BAD_PATTERN`: o parâmetro `context=` (arquivos de contexto WMS) fica desligado.
 
-Monte seus mapfiles e dados em `/var/lib/mapserver`, como no exemplo acima.
+Monte seus mapfiles e dados em `/var/lib/mapserver` (veja [Seus mapfiles](#seus-mapfiles-volume-configmap-ou-secret)).
 
 Os valores do bloco `ENV` do `mapserver.conf` **têm prioridade sobre as variáveis de ambiente do container**. Para mudar o padrão de caminhos, criar aliases (`MAPS`) ou definir outras opções, monte o seu próprio arquivo:
 
@@ -88,6 +88,63 @@ Em `/var/lib/mapserver/data` há um mapfile de exemplo (`default.map`) com o sha
 | OGC API Features (JSON/GeoJSON e HTML) | `/mapserver/DEFAULT/ogcapi/collections/countries/items?f=json` |
 
 As rotas consideram um proxy que encaminha `/mapserver` para o FastCGI.
+
+Esse mapfile é só uma demonstração, para a imagem responder logo ao subir. Em produção, o `/var/lib/mapserver` inteiro é substituído pelos seus mapfiles, o que esconde o exemplo.
+
+### Seus mapfiles (volume, ConfigMap ou Secret)
+
+Monte um volume, ConfigMap ou Secret sobre o diretório **inteiro** `/var/lib/mapserver`, **somente leitura**:
+
+- Os mapfiles são pedidos por caminho: `map=/var/lib/mapserver/<arquivo>.map`. Os caminhos relativos do mapfile (`SHAPEPATH`, `INCLUDE`, `FONTSET`, `SYMBOLSET`) partem do diretório dele.
+- O exemplo (`data/`) fica escondido. O `map=DEFAULT` passa a falhar (`msLoadMap(): Unable to access file. (/var/lib/mapserver/data/default.map)`), a menos que você ponha um mapfile em `data/default.map` ou defina seus aliases num `mapserver.conf` próprio. O `fonts.txt` e o `symbols.sym` do exemplo também somem: traga os seus, se o mapfile usar fontes ou símbolos. As fontes Liberation estão instaladas em `/usr/share/fonts/truetype/liberation/`.
+- O healthcheck não depende desse diretório (o mapfile dele fica em `/opt/geosgb/etc`).
+- O `HOME` continua sendo `/var/lib/mapserver`, sem escrita. Nada na imagem precisa gravar nele.
+- **Monte sempre somente leitura** (`:ro`, `read_only`, `readOnly: true`): o MapServer carrega qualquer `.map` dentro de `/var/lib/mapserver`, então o processo dele não pode conseguir gravar ali. A imagem não dá essa escrita, mas um volume gravável daria. Por exemplo, um diretório do host do usuário de UID 1000, o mesmo UID do container.
+
+Com Docker ou Compose:
+
+```bash
+docker run ... -v ./mapserver:/var/lib/mapserver:ro docker.io/ndscprm/mapserver:8.6.6
+```
+
+No Kubernetes:
+
+- **ConfigMap**: mapfiles e arquivos de texto pequenos, até 1 MiB no total. Subdiretórios são criados com `items[].path`, ex.: `path: data/default.map`.
+- **Secret**: mapfiles com credenciais, como o `CONNECTION` de uma camada Oracle ou PostGIS.
+- **PersistentVolumeClaim**: dados grandes (shapefiles, rasters), montado com `readOnly: true`.
+
+ConfigMaps e Secrets são sempre montados somente leitura. Para juntar mais de um no mesmo diretório, use um volume `projected`:
+
+```yaml
+spec:
+  containers:
+    - name: mapserver
+      image: docker.io/ndscprm/mapserver:8.6.6
+      securityContext:
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+      volumeMounts:
+        - name: mapfiles
+          mountPath: /var/lib/mapserver
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+  volumes:
+    - name: mapfiles
+      projected:
+        sources:
+          # kubectl create configmap mapserver-mapfiles --from-file=maps/
+          - configMap:
+              name: mapserver-mapfiles
+          # mapfile com o CONNECTION (usuário e senha) do Oracle
+          - secret:
+              name: mapserver-oracle
+              items:
+                - key: oracle.map
+                  path: oracle.map
+    - name: tmp
+      emptyDir: {}
+```
 
 ## Logs
 
