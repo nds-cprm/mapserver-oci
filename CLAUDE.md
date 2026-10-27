@@ -24,6 +24,8 @@ Os dois `FROM` precisam ter o mesmo `GDAL_VERSION`. Como as tags não têm data,
 - [examples/](examples/README.md): exemplo com Compose (`examples/nginx/`): `mapserver` (raiz somente leitura, `tmpfs` em `/tmp`, **sem `ports:`**, healthcheck declarado no Compose) e `nginx-unprivileged` (HTTP :8080 → FastCGI `mapserver:8080`, `conf/nginx/nginx.conf` por bind mount). O `nginx.conf` separa o `PATH_INFO` com `fastcgi_split_path_info ^(/mapserver)(/.*)$` (OGC API em `/mapserver/<mapa>/ogcapi/...`) e responde 404 fora de `/mapserver` e `/mapserver/...` (`location ~ ^/mapserver(/|$)`; o prefixo `/mapserver` aceitaria `/mapserverfoo`). O teste de fumaça usa esse `nginx.conf`, então uma mudança nele é testada a cada build.
 - [data/](data/): mapfile de exemplo (`default.map`, WMS "World Countries Generalized" com shapefile da Esri, `fonts.txt`, `symbols.sym`, `mapfile.d/outputformat.inc.map`), copiado para `/var/lib/mapserver/data`.
 
+- [.dockerignore](.dockerignore): lista de permissão (`*` e depois `!data/`, `!docker/`, `!etc/`, `!fcgi/`), então o contexto de build só tem o que os `COPY` usam (sem `.git`, CI, exemplos nem documentação). Um `COPY` de outro caminho precisa ser liberado ali, senão o build falha com "not found".
+
 - [README.md](README.md): documentação para quem usa a imagem (execução, variáveis, configuração, logs, build). Mantenha em sincronia com o Dockerfile.
 
 - [.github/workflows/docker-image.yml](.github/workflows/docker-image.yml): CI. Roda por `workflow_dispatch`, que é também disparado pelo CI do gdal-oci (job `dispatch`) depois que ele publica tags novas da `ndscprm/gdal`, com as versões delas nas entradas `gdal_version`/`python_version`. O workflow as repassa em `build-args` como `GDAL_VERSION`/`PYTHON_VERSION`, então a imagem sai sobre as tags recém-publicadas; vazias (disparo manual), valem os `ARG` do Dockerfile. Não há build agendado: o disparo vem com a base nova, que invalida todas as camadas, então o `apt-get install` da release pega os pacotes atuais. Chama o **workflow reutilizável** [`nds-cprm/gdal-oci/.github/workflows/oci-image.yml@main`](https://github.com/nds-cprm/gdal-oci/blob/main/.github/workflows/oci-image.yml), documentado no README do gdal-oci ("Workflow reutilizável"). Aqui ficam só os gatilhos, as permissões e as entradas:
@@ -211,6 +213,7 @@ Fatos verificados nas tags `3.12.4-py3.12-devel`, `3.12.4-py3.12` e `3.12.4-nopy
 - Versões como `ARG` globais no topo, re-declarados no estágio que os usa.
 - Cada `RUN` com apt faz `update`, `install --no-install-recommends --no-install-suggests`, `autoremove` e `rm -rf /var/lib/apt/lists/*`.
 - `SHELL` com `bash -o pipefail` em `compile` e `staging`, voltando para `/bin/sh -c` no fim de cada um.
+- Arquivo novo copiado pelo Dockerfile fora de `data/`, `docker/`, `etc/` e `fcgi/`: liberar no `.dockerignore`.
 - Todo download externo é verificado contra um SHA256 fixado no Dockerfile.
 - Comentários no Dockerfile em inglês; documentação em português.
 - `release-py` e `release` são mantidas com o mesmo texto, a não ser pelo `FROM`, pelo `LABEL` de descrição e pelo `RUN` do MapScript: uma mudança em uma vai também para a outra. Confira com `diff <(sed -n '/AS release-py$/,/^CMD/p' Dockerfile) <(sed -n '/AS release$/,/^CMD/p' Dockerfile)`, que só deve mostrar essas três diferenças.

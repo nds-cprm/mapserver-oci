@@ -1,0 +1,8 @@
+# Allowlist: the build context has only what the Dockerfile COPYs (no .git, CI, examples or docs).
+# A new COPY source outside these directories must be added here, or the build fails with "not found"
+*
+!data/
+!docker/
+!etc/
+!fcgi/
+**/.DS_Store

@@ -15,4 +15,3 @@ Pendências de segurança e boas práticas levantadas na revisão do projeto.
   - decidir a tag (ex.: `<versão>-py<PY>`) e acrescentar a variante no `docker-image.yml` (`target: release-py`, `scan: true`, smoke test);
   - acrescentar ao smoke test um `import mapscript` e a conferência do constraints;
   - decidir se ela substitui a `release` sem Python ou se as duas são publicadas.
-- [ ] **Sem `.dockerignore`.** Os `COPY` são específicos e nada vaza para a imagem, mas o `.git` vai junto no contexto de build.
