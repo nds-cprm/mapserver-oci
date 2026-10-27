@@ -20,4 +20,3 @@ Pendências de segurança e boas práticas levantadas na revisão do projeto.
 - [ ] **Decidir sobre o Python MapScript.** A release já usa a base sem Python (`ndscprm/gdal:<GDAL>-nopy`, desde 2026-10-25), e a compilação continua na `-py<PY>-devel`.
   - **Se o MapScript não entrar:** avaliar compilar numa `-devel` sem Python, se a base vier a publicar uma, e tirar o `PYTHON_VERSION`.
   - **Se entrar:** a release volta para `<GDAL>-py<PY>` (do mesmo build da `-devel`), e ainda dá para tirar `pip`, `setuptools` e `wheel` dela.
-- [ ] **Sem `.dockerignore`.** Os `COPY` são específicos e nada vaza para a imagem, mas o `.git` vai junto no contexto de build.

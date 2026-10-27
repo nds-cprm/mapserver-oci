@@ -4,7 +4,7 @@ Este arquivo orienta o Claude Code (claude.ai/code) ao trabalhar neste repositó
 
 ## Visão geral
 
-Imagem de contêiner do **MapServer compilado a partir do código-fonte com suporte a Oracle Spatial (OCI)**, rodando como **servidor FastCGI**. É mantida pelo SGB/CPRM (`docker.io/ndscprm/mapserver`). Não há código de aplicação, testes nem linters.
+Imagem de contêiner do **MapServer compilado a partir do código-fonte com suporte a Oracle Spatial (OCI)**, rodando como **servidor FastCGI**. É mantida pelo SGB/CPRM (`docker.io/ndscprm/mapserver`). Não há código de aplicação nem linters; os testes são scripts de shell que rodam contra a imagem pronta ([.github/scripts/](.github/scripts/), veja o CI abaixo).
 
 O projeto é uma camada sobre a imagem base GDAL do SGB (`docker.io/ndscprm/gdal`). Usa duas variantes do mesmo GDAL:
 - **`<GDAL>-py<PY>-devel`**, usada para compilar (e base da imagem `-devel` deste projeto);
@@ -23,6 +23,8 @@ Os dois `FROM` precisam ter o mesmo `GDAL_VERSION`. Como as tags não têm data,
 - [data/](data/): mapfile de exemplo (`default.map`, WMS "World Countries Generalized" com shapefile da Esri, `fonts.txt`, `symbols.sym`, `mapfile.d/outputformat.inc.map`), copiado para `/var/lib/mapserver/data`.
 
 - [README.md](README.md): documentação para quem usa a imagem (execução, variáveis, configuração, logs, build). Mantenha em sincronia com o Dockerfile.
+- [.dockerignore](.dockerignore): tira do contexto de build o `.git`, o `.github`, o `examples/`, os `*.md` e arquivos de editor/SO (`**/.DS_Store`, `**/*~`, `**/*.swp`), que o `COPY data` levaria para a imagem. O Dockerfile só copia `etc/`, `fcgi/`, `docker/` e `data/`: ao adicionar um `COPY` de outro caminho, confira se ele não está excluído aqui.
+- [TODO.md](TODO.md): pendências de segurança e boas práticas da revisão do projeto. Remova os itens quando forem concluídos.
 
 - [.github/workflows/docker-image.yml](.github/workflows/docker-image.yml): CI. Roda por `workflow_dispatch`, que é também disparado pelo CI do gdal-oci (job `dispatch`) depois que ele publica tags novas da `ndscprm/gdal`, com as versões delas nas entradas `gdal_version`/`python_version`. O workflow as repassa em `build-args` como `GDAL_VERSION`/`PYTHON_VERSION`, então a imagem sai sobre as tags recém-publicadas; vazias (disparo manual), valem os `ARG` do Dockerfile. Não há build agendado: o disparo vem com a base nova, que invalida todas as camadas, então o `apt-get install` da release pega os pacotes atuais. Chama o **workflow reutilizável** [`nds-cprm/gdal-oci/.github/workflows/oci-image.yml@main`](https://github.com/nds-cprm/gdal-oci/blob/main/.github/workflows/oci-image.yml), documentado no README do gdal-oci ("Workflow reutilizável"). Aqui ficam só os gatilhos, as permissões e as entradas:
   - `image: docker.io/ndscprm/mapserver` e `version-arg: MAPSERVER_VERSION`: a versão é o `ARG MAPSERVER_VERSION=` do Dockerfile, que precisa ficar numa linha própria, no começo da linha (o workflow lê com `sed` e valida como `X.Y.Z`). Não há tag escrita no workflow: ao mudar a versão, as tags acompanham.
@@ -109,6 +111,7 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
   - `ENV` `PATH` (sem venv) e `GDAL_DATA`;
   - `ENTRYPOINT ["/docker-entrypoint.sh"]`.
   - Não tem Python, venv nem o repositório apt do Arrow. As bibliotecas do Arrow já vêm instaladas; o `staging` (que roda na `-devel`, com o repositório) as lista, e o `apt` só registra que já estão na versão mais nova. Se uma versão nova da base exigir um pacote do Arrow que a `-nopy` não tenha, o `apt` da release falha.
+- **`LABEL`**: `org.opencontainers.image.*` (`title`, `description`, `vendor`, `version` a partir do `ARG MAPSERVER_VERSION`, `source` e `authors`). O estágio `build` (`-devel`) não define labels próprias.
 - **apt**: instala os pacotes do `staging` (por bind mount) e os que não são linkados: `fonts-liberation` (usado por `data/fonts.txt`), `libfcgi-bin` (o `cgi-fcgi` do healthcheck, 68 KB; a biblioteca `libfcgi0t64` já vem da lista do `staging`), `multiwatch` e `spawn-fcgi`.
 - **Ordem**:
   1. `RUN` do apt;

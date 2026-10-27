@@ -1,0 +1,12 @@
+# Build context: only etc/, fcgi/, docker/ and data/ are copied by the Dockerfile
+.git
+.github
+.gitignore
+.dockerignore
+examples
+*.md
+
+# editor/OS files, which COPY data would otherwise put in the image
+**/.DS_Store
+**/*~
+**/*.swp
