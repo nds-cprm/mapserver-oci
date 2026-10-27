@@ -55,6 +55,11 @@ RUN case "${MAPSERVER_BUILD_TYPE}" in \
     # ORACLE_HOME is only read by cmake (WITH_ORACLESPATIAL); use the Instant Client shipped by the base image
     ORACLE_HOME=$(echo "${BASE_DIR}"/oracle/instantclient_*) && \
     test -d "$ORACLE_HOME" && \
+    # the install target writes MapScript to ${BASE_DIR}/lib/python3.*, removed below: fail if the base image
+    # already has something there, instead of removing it
+    if compgen -G "${BASE_DIR}/lib/python3.*" > /dev/null; then \
+        echo "${BASE_DIR}/lib/python3.* already exists in the base image" >&2; exit 1; \
+    fi && \
     ( cd "$MAPSERVER_DIR/build" && \
     ORACLE_HOME="$ORACLE_HOME" cmake \
         -DCMAKE_C_FLAGS="${HARDENING_CFLAGS}" \
@@ -94,7 +99,8 @@ RUN case "${MAPSERVER_BUILD_TYPE}" in \
     ( cd src/mapscript/python && \
       ${BASE_DIR}/venv/bin/pip wheel --no-cache-dir --no-build-isolation --no-deps -w /wheels . ) ) && \
     # the install target also runs "pip install --prefix=${BASE_DIR}", outside the venv
-    # (${BASE_DIR}/lib/python3.*, not in the install manifest): replaced by the wheel, installed in the venv
+    # (${BASE_DIR}/lib/python3.*, not in the install manifest, checked above not to come from the base image):
+    # replaced by the wheel, installed in the venv
     rm -rf "${BASE_DIR}"/lib/python3.* && \
     ${BASE_DIR}/venv/bin/pip install --no-cache-dir --no-index --no-deps /wheels/mapscript-*.whl && \
     rm -rf "$MAPSERVER_DIR/build" && \
@@ -220,21 +226,19 @@ COPY --chmod=755 fcgi/start.sh /start.sh
 # health check command shared by every runtime (see HEALTHCHECK below)
 COPY --chmod=755 docker/healthcheck /usr/local/bin/healthcheck
 
-# MapScript from the wheel of the staging stage, offline and without dependencies (it has none), constrained to the
-# packages of the base image so nothing of it changes. Then the constraints of the resulting venv (base image
-# packages + mapscript) are written to ${BASE_DIR}/share/mapserver/constraints.txt, for derived images:
+# MapScript from the wheel of the staging stage, offline and without dependencies (it has none), so no package
+# of the base image changes. Then the constraints of the resulting venv (base image packages + mapscript) are
+# written to ${BASE_DIR}/share/mapserver/constraints.txt, for derived images:
 # pip install -c ${BASE_DIR}/share/mapserver/constraints.txt ... cannot replace any of them.
 # "pip list --format=freeze", not "pip freeze": packages installed from a local wheel (pyarrow in the base image,
 # mapscript here) would be written as "name @ file:///tmp/...", a path that does not exist in other images
 RUN --mount=type=bind,from=staging,source=/tmp/wheels,target=/tmp/wheels \
     ldconfig && \
-    pip list --format=freeze > /tmp/base-constraints.txt && \
-    pip install --no-cache-dir --no-index --no-deps -c /tmp/base-constraints.txt /tmp/wheels/mapscript-*.whl && \
+    pip install --no-cache-dir --no-index --no-deps /tmp/wheels/mapscript-*.whl && \
     pip check && \
     python -c "import mapscript; print('mapscript', mapscript.MS_VERSION)" && \
     pip list --format=freeze > "${BASE_DIR}/share/mapserver/constraints.txt" && \
     grep -q '^mapscript==' "${BASE_DIR}/share/mapserver/constraints.txt" && \
-    rm /tmp/base-constraints.txt && \
     install -d -m 775 /var/lib/mapserver
 
 # (copying the parent keeps the mode of data/ itself; COPY would create a 755 destination)

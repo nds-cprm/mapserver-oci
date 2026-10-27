@@ -90,7 +90,16 @@ workers=$("$DOCKER" exec "$NAME" sh -c 'n=0; for p in /proc/[0-9]*; do
 
 "$DOCKER" run -d --name "$NAME-nginx" --network "$NAME" --read-only --tmpfs /tmp \
     -v "$NGINX_CONF:/etc/nginx/conf.d/default.conf:ro" "$NGINX_IMAGE" > /dev/null
-sleep 2
+# nginx is up once it answers: 404 outside /mapserver (instead of "Connection refused")
+up=
+for _ in $(seq 15); do
+    if "$DOCKER" exec "$NAME-nginx" wget -q -O /dev/null http://127.0.0.1:8080/ 2>&1 | grep -q 404; then
+        up=yes
+        break
+    fi
+    sleep 1
+done
+[ -n "$up" ] || fail "nginx did not start within 15 s"
 get '/mapserver?map=DEFAULT&SERVICE=WMS&REQUEST=GetCapabilities' | grep -q '<WMS_Capabilities' \
     || fail "WMS GetCapabilities through nginx"
 get '/mapserver?map=DEFAULT&SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=countries&STYLES=&CRS=EPSG:4326&BBOX=-90,-180,90,180&WIDTH=200&HEIGHT=100&FORMAT=image/png' \
