@@ -56,6 +56,12 @@ for option in SUPPORTS=FASTCGI INPUT=ORACLESPATIAL INPUT=OGR SUPPORTS=OGCAPI_SER
     echo "$version" | grep -q "$option" || fail "mapserv -v without $option"
 done
 [ "$("$DOCKER" image inspect "$IMAGE" --format '{{.Config.User}}')" = 1000:0 ] || fail "image user is not 1000:0"
+# HOME is /var/lib/mapserver (read-only) for any user, also in the nss_wrapper passwd entry
+for user in 1000:0 12345:12345; do
+    home=$("$DOCKER" run --rm -e ENTRYPOINT_QUIET_LOGS=1 --user "$user" --read-only --tmpfs /tmp "$IMAGE" \
+        sh -c 'echo "$HOME:$(getent passwd "$(id -u)" | cut -d: -f6)"')
+    [ "$home" = /var/lib/mapserver:/var/lib/mapserver ] || fail "HOME:passwd home of $user is $home"
+done
 
 echo "## CGI requests"
 cgi 'map=DEFAULT&SERVICE=WMS&REQUEST=GetCapabilities' | grep -q '<WMS_Capabilities' || fail "WMS GetCapabilities"
@@ -87,10 +93,23 @@ workers=$("$DOCKER" exec "$NAME" sh -c 'n=0; for p in /proc/[0-9]*; do
         [ "$(awk "/^Uid:/ { print \$2 }" "$p/status")" = 12345 ] && n=$((n + 1));;
     esac; done; echo $n')
 [ "$workers" = 4 ] || fail "$workers mapserv workers running as 12345 (expected 4)"
+# mapfiles are loaded from /var/lib/mapserver (MS_MAP_PATTERN): nothing there may be writable by the server,
+# also with GID 0 (checked by mode and owner, as --read-only would hide it)
+writable=$("$DOCKER" exec "$NAME" find /var/lib/mapserver \( -perm /022 -o ! -user 0 \) -print)
+[ -z "$writable" ] || fail "writable by the server under /var/lib/mapserver: $writable"
 
 "$DOCKER" run -d --name "$NAME-nginx" --network "$NAME" --read-only --tmpfs /tmp \
     -v "$NGINX_CONF:/etc/nginx/conf.d/default.conf:ro" "$NGINX_IMAGE" > /dev/null
-sleep 2
+# nginx is up once it answers: 404 outside /mapserver (instead of "Connection refused")
+up=
+for _ in $(seq 15); do
+    if "$DOCKER" exec "$NAME-nginx" wget -q -O /dev/null http://127.0.0.1:8080/ 2>&1 | grep -q 404; then
+        up=yes
+        break
+    fi
+    sleep 1
+done
+[ -n "$up" ] || fail "nginx did not start within 15 s"
 get '/mapserver?map=DEFAULT&SERVICE=WMS&REQUEST=GetCapabilities' | grep -q '<WMS_Capabilities' \
     || fail "WMS GetCapabilities through nginx"
 get '/mapserver?map=DEFAULT&SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=countries&STYLES=&CRS=EPSG:4326&BBOX=-90,-180,90,180&WIDTH=200&HEIGHT=100&FORMAT=image/png' \
@@ -98,6 +117,9 @@ get '/mapserver?map=DEFAULT&SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=coun
 # PATH_INFO split by nginx (fastcgi_split_path_info)
 get '/mapserver/DEFAULT/ogcapi/collections/countries/items?f=json&limit=2' | grep -q '"numberReturned":2' \
     || fail "OGC API items through nginx"
+# only /mapserver and /mapserver/... go to MapServer
+"$DOCKER" exec "$NAME-nginx" wget -q -O /dev/null 'http://127.0.0.1:8080/mapserverfoo?map=DEFAULT' 2>&1 | grep -q 404 \
+    || fail "/mapserverfoo not answered with 404 by nginx"
 get '/mapserver?map=/etc/passwd' | grep -q 'fails to validate' || fail "map= outside MS_MAP_PATTERN accepted"
 sleep 1
 "$DOCKER" logs "$NAME" 2>&1 | grep -q 'msCGILoadMap().*fails to validate' || fail "MapServer error not in the container log"

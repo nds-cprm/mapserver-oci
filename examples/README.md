@@ -34,7 +34,7 @@ Com o mapfile de exemplo da imagem (`map=DEFAULT`, camada `countries`):
 
 Descomente o `volumes:` do serviço `mapserver` e ponha os mapfiles e os dados em `nginx/maps/`. Eles ficam em `/var/lib/mapserver/maps` e são pedidos por caminho: `map=/var/lib/mapserver/maps/<arquivo>.map`. Para um nome curto (`map=<NOME>`), monte um `mapserver.conf` próprio com um alias em `MAPS`, a partir do da imagem, e mantenha as opções fixadas e o alias `HEALTHCHECK` (veja [Mapfiles e configuração](../README.md#mapfiles-e-configuração)).
 
-Monte os mapfiles somente leitura (`:ro`): o processo do MapServer roda com o grupo 0, que tem escrita em `/var/lib/mapserver`.
+Monte os mapfiles somente leitura (`:ro`): o MapServer carrega qualquer `.map` em `/var/lib/mapserver`, então o processo dele não deve conseguir gravar ali. A imagem não dá escrita nesse diretório a ninguém além do root, mas um volume gravável montado nele daria.
 
 ## O `nginx.conf`
 
@@ -43,6 +43,6 @@ Monte os mapfiles somente leitura (`:ro`): o processo do MapServer roda com o gr
 - Os links da OGC API e o `OnlineResource` do WMS vêm do mapfile (`oga_onlineresource` e `ows_onlineresource`). No `default.map` eles são relativos (`/mapserver/DEFAULT/ogcapi` e `/mapserver`), então funcionam com este `location`. Para publicar em outro caminho, mude os dois juntos.
 - `fastcgi_read_timeout 60s`: o MapServer não tem um tempo limite de pedido próprio. Um GetMap numa fonte lenta prende um worker (4 por padrão, `MAPSERVER_WORKERS`) até terminar, mesmo depois de o nginx desistir.
 - `fastcgi_buffer_size` e `fastcgi_buffers` guardam respostas grandes (imagens de GetMap, GeoJSON) na memória do nginx, para liberar o worker logo.
-- Fora de `/mapserver`, o nginx responde 404.
+- Fora de `/mapserver` e `/mapserver/...`, o nginx responde 404. O `location` é uma regex (`^/mapserver(/|$)`), e não o prefixo `/mapserver`, que mandaria também `/mapserverfoo` para o MapServer.
 
 Verificado em 26/10/2026 com o Podman (`podman compose`): WMS GetCapabilities, GetMap e GetFeatureInfo, OGC API em JSON e HTML com os links certos, gzip e o healthcheck, que não grava nada no log. O teste de fumaça do CI ([`.github/scripts/smoke-test.sh`](../.github/scripts/smoke-test.sh)) usa este `nginx.conf`, então uma mudança nele é testada a cada build.

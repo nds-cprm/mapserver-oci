@@ -1,10 +1,10 @@
-# Build context: only etc/, fcgi/, docker/ and data/ are copied by the Dockerfile
-.git
-.github
-.gitignore
-.dockerignore
-examples
-*.md
+# Allowlist: the build context has only what the Dockerfile COPYs (no .git, CI, examples or docs).
+# A new COPY source outside these directories must be added here, or the build fails with "not found"
+*
+!data/
+!docker/
+!etc/
+!fcgi/
 
 # editor/OS files, which COPY data would otherwise put in the image
 **/.DS_Store

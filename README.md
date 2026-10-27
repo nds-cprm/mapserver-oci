@@ -106,7 +106,7 @@ O `docker logs` também mostra a inicialização e os eventos do `multiwatch` (e
 
 - **Usuário padrão:** a imagem roda como `1000:0`, sem privilégios. A imagem `-devel` continua como root.
 - **UID arbitrário:** `docker run --user <uid>`, `runAsUser` no Kubernetes e OpenShift são suportados. Quando a UID não existe no `/etc/passwd` (caso do 1000), o entrypoint da imagem base cria um usuário virtual (`sgb`, variável `USER_NAME`) via `nss_wrapper`.
-- **Escrita em `/var/lib/mapserver`:** o diretório (`HOME`) é gravável pelo grupo 0. Usuários com GID 0, que é o padrão nesses ambientes, podem escrever nele. Com outro GID (ex.: `--user 12345:12345`), o `HOME` continua sendo `/var/lib/mapserver`, mas sem permissão de escrita. O MapServer não grava no `HOME`, então a imagem funciona assim mesmo.
+- **`/var/lib/mapserver` somente leitura:** o diretório (`HOME`) e os dados de exemplo pertencem ao root, sem escrita para mais ninguém, nem para o grupo 0. É ali que os mapfiles são procurados (`MS_MAP_PATTERN`), então o processo do MapServer não pode gravar um mapfile. Ele continua sendo o `HOME` de qualquer usuário, também no passwd virtual do `nss_wrapper`, mesmo sem escrita: o MapServer não grava no `HOME`, e o que precisa de escrita fica no `/tmp`.
 - **Sistema de arquivos raiz somente leitura** (`--read-only`, `read_only: true`, `readOnlyRootFilesystem: true`): suportado, desde que `/tmp` seja gravável (`--tmpfs /tmp`; no Kubernetes, um `emptyDir`). O `nss_wrapper` grava ali o usuário virtual, e o `start.sh`, o FIFO do log de erros. Sem `/tmp` gravável, o container não inicia quando a UID não existe no `/etc/passwd`.
 
 ## Healthcheck
@@ -194,25 +194,45 @@ docker exec -u 0 mapserver-devel sh -c 'apt-get update && apt-get install -y gdb
 docker exec -it mapserver-devel sh -c 'gdb -p $(pgrep -f "^/opt/geosgb/bin/mapserv")'
 ```
 
-O MapServer da `-devel` tem símbolos de debug e o código-fonte, então o backtrace mostra arquivo e linha no código dele. O GDAL da imagem base publicada não tem símbolos: os quadros do GDAL aparecem só com o nome da função. Para depurar dentro do GDAL, construa localmente a `devel` da base com `GDAL_BUILD_TYPE=RelWithDebInfo` (README do gdal-oci, "Depuração com gdb"), marque-a com a tag que o `FROM` usa (`docker tag <imagem> docker.io/ndscprm/gdal:3.12.4-py3.12-devel`) e construa a `-devel` daqui sem `--pull`.
+A `-devel` publicada tem o código-fonte do MapServer em `/opt/geosgb/src`, mas não os símbolos de debug, nem do MapServer nem do GDAL da imagem base: o backtrace mostra só nomes de função. Para ter arquivo e linha no MapServer, construa a `-devel` localmente com `--build-arg MAPSERVER_BUILD_TYPE=RelWithDebInfo` (`docker build --target build --build-arg MAPSERVER_BUILD_TYPE=RelWithDebInfo -t mapserver:debug .`). Para depurar também dentro do GDAL, construa localmente a `devel` da base com `GDAL_BUILD_TYPE=RelWithDebInfo` (README do gdal-oci, "Depuração com gdb"), marque-a com a tag que o `FROM` usa (`docker tag <imagem> docker.io/ndscprm/gdal:3.12.4-py3.12-devel`) e construa a `-devel` daqui sem `--pull`.
 
 As duas tags são multiplataforma (`linux/amd64` e `linux/arm64`). O Docker escolhe sozinho a variante da máquina. Para construir uma arquitetura específica localmente, use `docker buildx build --platform linux/arm64 ...`; para isso, a imagem base também precisa existir nessa arquitetura.
 
 ```bash
 # imagem final (FastCGI)
 docker build -t docker.io/ndscprm/mapserver:8.6.6 .
-# imagem de desenvolvimento: toolchain, headers e código-fonte do GDAL e do MapServer
+# imagem final com Python MapScript (base ndscprm/gdal com Python)
+docker build --target release-mapscript -t mapserver:8.6.6-mapscript .
+# imagem de desenvolvimento: toolchain, headers e código-fonte do GDAL e do MapServer, com o MapScript no venv
 docker build --target build -t docker.io/ndscprm/mapserver:8.6.6-devel .
 ```
+
+### Python MapScript (`release-mapscript`)
+
+O estágio `release-mapscript` tem o mesmo servidor FastCGI da imagem final, sobre a `ndscprm/gdal` com Python, e o **Python MapScript** instalado no virtualenv `/opt/geosgb/venv` (o `python` e o `pip` do `PATH`). Por enquanto, ele só é construído localmente: o CI não o publica.
+
+```bash
+docker run --rm mapserver:8.6.6-mapscript python -c "import mapscript; print(mapscript.msGetVersion())"
+```
+
+O arquivo `/opt/geosgb/share/mapserver/constraints.txt` lista as versões de todos os pacotes do venv (os da imagem base, como GDAL, numpy e pyarrow, e o `mapscript`). Numa imagem derivada, use-o para que nenhuma instalação os troque:
+
+```dockerfile
+FROM mapserver:8.6.6-mapscript
+RUN pip install --no-cache-dir -c /opt/geosgb/share/mapserver/constraints.txt minha-dependencia
+```
+
+A `-devel` também tem o MapScript no venv e guarda o wheel em `/wheels` (`mapscript-<versão>-cp<PY>-cp<PY>-linux_<arch>.whl`), para instalá-lo num venv próprio, por exemplo numa imagem derivada da `-devel`. O wheel não traz o MapServer: ele linka a `/opt/geosgb/lib/libmapserver.so`, então só funciona onde esse mesmo build do MapServer estiver instalado.
 
 ### Build args
 
 | Arg | Padrão | Descrição |
 |-----|--------|-----------|
 | `GDAL_VERSION` | `3.12.4` | Versão da imagem base `ndscprm/gdal` |
-| `PYTHON_VERSION` | `3.12` | Versão do Python da imagem base de compilação (`-devel`); a imagem final não tem Python |
+| `PYTHON_VERSION` | `3.12` | Versão do Python da imagem base de compilação (`-devel`) e da `release-mapscript`; a imagem final não tem Python |
 | `MAPSERVER_VERSION` | `8.6.6` | Versão do MapServer |
 | `MAPSERVER_SHA256` | SHA256 do `mapserver-8.6.6.tar.gz` | Atualizar junto com `MAPSERVER_VERSION` |
+| `MAPSERVER_BUILD_TYPE` | `Release` | `Release` (sem símbolos de debug) ou `RelWithDebInfo` (acrescenta os símbolos à `-devel`, para depurar com o gdb). O código-fonte fica na `-devel` nos dois casos, e a release sai igual |
 | `HARDENING_CFLAGS` / `HARDENING_LDFLAGS` | `-fstack-protector-strong -fstack-clash-protection -D_FORTIFY_SOURCE=3` / `-Wl,-z,relro,-z,now` | Proteções de compilação do MapServer, as mesmas da base `ndscprm/gdal` (o gcc do Debian não as liga por padrão) |
 
 As tags `ndscprm/gdal:<GDAL_VERSION>-py<PYTHON_VERSION>-devel` (build e imagem `-devel`) e `ndscprm/gdal:<GDAL_VERSION>-nopy` (imagem final, sem Python) precisam existir.
