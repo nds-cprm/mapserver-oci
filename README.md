@@ -222,6 +222,8 @@ FROM mapserver:8.6.6-py
 RUN pip install --no-cache-dir -c /opt/geosgb/share/mapserver/constraints.txt minha-dependencia
 ```
 
+A `-devel` também tem o MapScript no venv e guarda o wheel em `/wheels` (`mapscript-<versão>-cp<PY>-cp<PY>-linux_<arch>.whl`), para instalá-lo num venv próprio, por exemplo numa imagem derivada da `-devel`. O wheel não traz o MapServer: ele linka a `/opt/geosgb/lib/libmapserver.so`, então só funciona onde esse mesmo build do MapServer estiver instalado.
+
 ### Build args
 
 | Arg | Padrão | Descrição |

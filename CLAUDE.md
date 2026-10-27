@@ -84,7 +84,7 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
   - fica **sem** cURL, Cairo/SVG-Cairo, HarfBuzz, FriBiDi, GIF, SOS, Protobuf-c e clientes WMS/WFS, e **com** libxml2, Oracle Spatial e Python MapScript.
 - **Python MapScript** (`-DWITH_PYTHON=ON`, `-DPython_EXECUTABLE=${BASE_DIR}/venv/bin/python`):
   - o CMake gera o módulo `_mapscript` com o SWIG da base (4.3), com as mesmas flags (hardening e build type), e um `setup.py` que só empacota esse `.so` (não compila nada);
-  - o wheel (`mapscript-<versão>-cp<PY>-cp<PY>-linux_<arch>.whl`, cerca de 400 KB) sai com `pip wheel --no-build-isolation --no-deps -w /wheels` em `build/src/mapscript/python`: offline, com o setuptools e o wheel fixados com hash pela base;
+  - o wheel (`mapscript-<versão>-cp<PY>-cp<PY>-linux_<arch>.whl`, cerca de 400 KB) sai com `pip wheel --no-build-isolation --no-deps -w /wheels` em `build/src/mapscript/python`: offline, com o setuptools e o wheel fixados com hash pela base. O `/wheels` fica na `-devel` de propósito: o `staging` o reempacota para a `release-py`, e ele pode ser instalado num venv próprio onde estiver esse build do MapServer (linka a `${BASE_DIR}/lib/libmapserver.so`; documentado no README);
   - o target `install` também roda `pip install --prefix=${BASE_DIR}`, que põe o MapScript em `${BASE_DIR}/lib/python3.*`, fora do venv e fora do `install_manifest.txt`. O build falha se esse diretório já existir na base (hoje não existe), para nunca apagar algo dela; depois do `install`, ele é apagado e o wheel é instalado no venv (`--no-index --no-deps`), então a `-devel` também tem o MapScript; o `RUN` termina com um `import mapscript`;
   - o target `pythonmapscript-wheel` do CMake (venv próprio, `pip install -r requirements-dev.txt` da internet, testes) **não** é usado.
 
@@ -111,7 +111,7 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
 - Ao adicionar uma dependência no `build`, não é preciso mexer na release.
 
 ### `release-py` (`ndscprm/gdal:${GDAL_VERSION}-py${PYTHON_VERSION}`)
-- Igual à `release` (pacotes do `staging`, arquivos do MapServer, configuração, `start.sh`, healthcheck, dados, `ENV`, `USER 1000:0`, `HEALTHCHECK` e `CMD`), mas sobre a base com Python, do mesmo build do GDAL da `-devel`. Fica **antes** da `release`, que continua sendo o último estágio (alvo padrão).
+- Mesmo texto da `release` (pacotes do `staging`, arquivos do MapServer, configuração, `start.sh`, healthcheck, dados, `ENV`, `USER 1000:0`, `HEALTHCHECK` e `CMD`), mas sobre a base com Python, do mesmo build do GDAL da `-devel`. Fica **antes** da `release`, que continua sendo o último estágio (alvo padrão).
 - Instala o wheel do `staging` (bind mount de `/tmp/wheels`) no venv da base com `--no-index --no-deps` (sem dependências, nada da base muda), depois `pip check` e `import mapscript`.
 - **Constraints**: grava `${BASE_DIR}/share/mapserver/constraints.txt` com os pacotes do venv depois da instalação (os da base mais o `mapscript`), para imagens derivadas: `pip install -c /opt/geosgb/share/mapserver/constraints.txt ...` não troca nenhum deles. Usa `pip list --format=freeze`, e não `pip freeze`, porque pacotes instalados de wheel local (o `pyarrow` da base e o `mapscript`) sairiam como `nome @ file:///tmp/...`, caminho que não existe em outra imagem. O build falha se o `mapscript==` não estiver no arquivo. Não define `PIP_CONSTRAINT`: o uso fica a critério da imagem derivada.
 - Testada com o `smoke-test.sh` da release (o mesmo FastCGI) e com `import mapscript` como UID arbitrário e `--read-only`. Tamanho: cerca de 620 MB (a `release` tem cerca de 450 MB).
@@ -211,3 +211,4 @@ Fatos verificados nas tags `3.12.4-py3.12-devel`, `3.12.4-py3.12` e `3.12.4-nopy
 - `SHELL` com `bash -o pipefail` em `compile` e `staging`, voltando para `/bin/sh -c` no fim de cada um.
 - Todo download externo é verificado contra um SHA256 fixado no Dockerfile.
 - Comentários no Dockerfile em inglês; documentação em português.
+- `release-py` e `release` são mantidas com o mesmo texto, a não ser pelo `FROM`, pelo `LABEL` de descrição e pelo `RUN` do MapScript: uma mudança em uma vai também para a outra. Confira com `diff <(sed -n '/AS release-py$/,/^CMD/p' Dockerfile) <(sed -n '/AS release$/,/^CMD/p' Dockerfile)`, que só deve mostrar essas três diferenças.
