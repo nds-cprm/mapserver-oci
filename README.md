@@ -202,23 +202,23 @@ As duas tags são multiplataforma (`linux/amd64` e `linux/arm64`). O Docker esco
 # imagem final (FastCGI)
 docker build -t docker.io/ndscprm/mapserver:8.6.6 .
 # imagem final com Python MapScript (base ndscprm/gdal com Python)
-docker build --target release-py -t mapserver:8.6.6-py .
+docker build --target release-mapscript -t mapserver:8.6.6-mapscript .
 # imagem de desenvolvimento: toolchain, headers e código-fonte do GDAL e do MapServer, com o MapScript no venv
 docker build --target build -t docker.io/ndscprm/mapserver:8.6.6-devel .
 ```
 
-### Python MapScript (`release-py`)
+### Python MapScript (`release-mapscript`)
 
-O estágio `release-py` tem o mesmo servidor FastCGI da imagem final, sobre a `ndscprm/gdal` com Python, e o **Python MapScript** instalado no virtualenv `/opt/geosgb/venv` (o `python` e o `pip` do `PATH`). Por enquanto, ele só é construído localmente: o CI não o publica.
+O estágio `release-mapscript` tem o mesmo servidor FastCGI da imagem final, sobre a `ndscprm/gdal` com Python, e o **Python MapScript** instalado no virtualenv `/opt/geosgb/venv` (o `python` e o `pip` do `PATH`). Por enquanto, ele só é construído localmente: o CI não o publica.
 
 ```bash
-docker run --rm mapserver:8.6.6-py python -c "import mapscript; print(mapscript.msGetVersion())"
+docker run --rm mapserver:8.6.6-mapscript python -c "import mapscript; print(mapscript.msGetVersion())"
 ```
 
 O arquivo `/opt/geosgb/share/mapserver/constraints.txt` lista as versões de todos os pacotes do venv (os da imagem base, como GDAL, numpy e pyarrow, e o `mapscript`). Numa imagem derivada, use-o para que nenhuma instalação os troque:
 
 ```dockerfile
-FROM mapserver:8.6.6-py
+FROM mapserver:8.6.6-mapscript
 RUN pip install --no-cache-dir -c /opt/geosgb/share/mapserver/constraints.txt minha-dependencia
 ```
 
@@ -229,7 +229,7 @@ A `-devel` também tem o MapScript no venv e guarda o wheel em `/wheels` (`mapsc
 | Arg | Padrão | Descrição |
 |-----|--------|-----------|
 | `GDAL_VERSION` | `3.12.4` | Versão da imagem base `ndscprm/gdal` |
-| `PYTHON_VERSION` | `3.12` | Versão do Python da imagem base de compilação (`-devel`) e da `release-py`; a imagem final não tem Python |
+| `PYTHON_VERSION` | `3.12` | Versão do Python da imagem base de compilação (`-devel`) e da `release-mapscript`; a imagem final não tem Python |
 | `MAPSERVER_VERSION` | `8.6.6` | Versão do MapServer |
 | `MAPSERVER_SHA256` | SHA256 do `mapserver-8.6.6.tar.gz` | Atualizar junto com `MAPSERVER_VERSION` |
 | `MAPSERVER_BUILD_TYPE` | `Release` | `Release` (sem símbolos de debug) ou `RelWithDebInfo` (acrescenta os símbolos à `-devel`, para depurar com o gdb). O código-fonte fica na `-devel` nos dois casos, e a release sai igual |
