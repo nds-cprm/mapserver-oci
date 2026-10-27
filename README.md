@@ -74,6 +74,8 @@ docker run ... -v ./mapserver.conf:/opt/geosgb/etc/mapserver.conf:ro docker.io/n
 
 Parta do arquivo da imagem e mantenha as opções fixadas contra parâmetros FastCGI. Nas expressões regulares, o leitor do `mapserver.conf` converte `\\` em `\` e mantém uma `\` seguida de outro caractere. Como o MapServer usa PCRE2, onde `[/\]` é uma classe não fechada, escreva `\\\\` para uma barra invertida dentro de `[...]` (como no `MS_MAP_BAD_PATTERN` da imagem) e `\.` para um ponto literal. Um padrão inválido não dá erro na inicialização: todo pedido com `map=` passa a falhar com `fails to validate`.
 
+O `mapserver.conf` **não aceita `INCLUDE`**, nem dentro de `MAPS`. O MapServer não dá erro: `INCLUDE "arquivo"` vira um alias chamado `INCLUDE`, e o conteúdo do arquivo é ignorado. O `INCLUDE` só funciona dentro dos mapfiles. Para manter os aliases junto dos mapfiles, use o [`mapserver.conf` no volume](#mapserverconf-no-volume).
+
 Para a OGC API, a rota vai no caminho da URL (ex.: `/mapserver/DEFAULT/ogcapi`). O mapfile precisa ter:
 - `oga_enable_request` e `oga_onlineresource` (a URL base usada nos links) no `WEB METADATA`;
 - em cada camada publicada como coleção do OGC API Features: `TEMPLATE` (camada consultável), `gml_featureid` (campo identificador) e `gml_include_items` (atributos retornados).
@@ -144,6 +146,88 @@ spec:
                   path: oracle.map
     - name: tmp
       emptyDir: {}
+```
+
+#### `mapserver.conf` no volume
+
+O `mapserver.conf` pode ir no mesmo volume, ConfigMap ou Secret dos mapfiles, apontado pela variável `MAPSERVER_CONFIG_FILE`. Em `MAPS`, um caminho relativo parte do diretório do `mapserver.conf`. Assim, os aliases ficam junto dos mapfiles e o volume fica autocontido:
+
+```
+/var/lib/mapserver/
+├── mapserver.conf
+└── geologia/
+    └── geologia.map          # map=GEOLOGIA
+```
+
+```bash
+docker run ... -v ./mapserver:/var/lib/mapserver:ro \
+  -e MAPSERVER_CONFIG_FILE=/var/lib/mapserver/mapserver.conf \
+  docker.io/ndscprm/mapserver:8.6.6
+```
+
+No Kubernetes, é uma variável `env` do container: `name: MAPSERVER_CONFIG_FILE`, `value: /var/lib/mapserver/mapserver.conf`.
+
+O `mapserver.conf` é lido uma vez, quando cada worker inicia. Depois de mudá-lo, reinicie o container. Um cliente FastCGI não consegue trocá-lo por parâmetro: o caminho lido na inicialização tem prioridade sobre o ambiente de cada requisição.
+
+Parta desta cópia comentada do [etc/mapserver.conf](etc/mapserver.conf) da imagem:
+
+```
+#
+# mapserver.conf para o volume /var/lib/mapserver, usado com
+# MAPSERVER_CONFIG_FILE=/var/lib/mapserver/mapserver.conf
+# Referência: https://mapserver.org/mapfile/config.html
+#
+# Strings: o leitor deste arquivo converte \\ em \ e mantém uma \ seguida de
+# outro caractere. As regex são PCRE2, onde [/\] é uma classe não fechada:
+# escreva \\\\ para uma barra invertida dentro de [...] e \. para um ponto.
+# Um padrão inválido não dá erro na inicialização: todo map= passa a falhar.
+#
+# Não há INCLUDE neste arquivo: ele seria lido como um alias de MAPS.
+#
+CONFIG
+  ENV
+    #
+    # Opções fixadas contra parâmetros FastCGI: no FastCGI, o ambiente que o
+    # MapServer lê a cada requisição são os parâmetros dela, então um cliente
+    # que fale FastCGI direto com a porta 8080 define qualquer opção que não
+    # esteja aqui. Os valores daqui têm prioridade. Não remova nenhuma.
+    #
+
+    # map= por caminho só dentro de /var/lib/mapserver (ex.: map=/var/lib/mapserver/geologia/geologia.map)
+    MS_MAP_PATTERN "^/var/lib/mapserver/"
+    # padrão do MapServer: recusa "//", "/../" e "," no map=
+    MS_MAP_BAD_PATTERN "[/\\\\]{2}|[/\\\\]?\.+[/\\\\]|,"
+    # só abre arquivos .map
+    MS_MAPFILE_PATTERN "\.map$"
+    # sem mapfile padrão: um pedido sem map= falha ("Filename validation failed").
+    # Sem esta linha, um cliente poderia escolher qualquer arquivo como MS_MAPFILE
+    MS_MAPFILE ""
+    # arquivos de contexto WMS (context=) desligados: nada casa com "^$"
+    MS_CONTEXT_PATTERN "^$"
+    MS_CONTEXT_BAD_PATTERN "[/\\\\]{2}|[/\\\\]?\.+[/\\\\]|,"
+
+    # templates HTML da OGC API (f=html)
+    OGCAPI_HTML_TEMPLATE_DIRECTORY "/opt/geosgb/share/mapserver/ogcapi/templates/html-bootstrap/"
+
+    #
+    # Suas opções do MapServer, do GDAL ou do PROJ: valem para todos os
+    # mapfiles e não podem ser trocadas por variável de ambiente do container.
+    # Por isso, opções que devem poder mudar por -e ficam fora daqui, como
+    # MS_DEBUGLEVEL e MS_ERRORFILE (aqui, ele também tiraria os erros do log
+    # do container, que a imagem configura quando ele não está definido).
+    #
+  END
+
+  MAPS
+    # map=<NOME> (e /mapserver/<NOME>/ogcapi na OGC API). Um caminho relativo
+    # parte do diretório deste arquivo (/var/lib/mapserver). Troque pelos seus
+    GEOLOGIA "geologia/geologia.map"
+
+    # obrigatório: usado pelo healthcheck da imagem (um PNG vazio de 1x1),
+    # com caminho absoluto, fora do volume
+    HEALTHCHECK "/opt/geosgb/etc/healthcheck.map"
+  END
+END
 ```
 
 ## Logs
