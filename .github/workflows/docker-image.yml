@@ -50,13 +50,17 @@ jobs:
       build-args: |
         ${{ inputs.gdal_version && format('GDAL_VERSION={0}', inputs.gdal_version) || '' }}
         ${{ inputs.python_version && format('PYTHON_VERSION={0}', inputs.python_version) || '' }}
-      # devel and release come from the same Bake call, so they share the compile stage (same MapServer
-      # build); the release goes through every stage (COPY --from=build), so it writes the cache.
+      # devel, mapscript and release come from the same Bake call, so they share the compile stage (same
+      # MapServer build); the release goes through every stage it needs (COPY --from=build and staging), so it
+      # writes the cache. mapscript (release-mapscript) is the release FastCGI server on the GDAL base with
+      # Python plus Python MapScript: the smoke test of the release, then its own.
       # Vulnerabilities are only reported (no fail-on-severity), but a failed scan stops the publication
       variants: |
         [
           {"name": "devel", "target": "build", "tag": "{version}-devel",
            "test": "sh .github/scripts/devel-test.sh \"$IMAGE_REF\""},
+          {"name": "mapscript", "target": "release-mapscript", "tag": "{version}-mapscript", "scan": true,
+           "test": "sh .github/scripts/smoke-test.sh \"$IMAGE_REF\" && sh .github/scripts/mapscript-test.sh \"$IMAGE_REF\""},
           {"name": "release", "target": "release", "tag": "{version}", "scan": true, "cache-to": true,
            "test": "sh .github/scripts/smoke-test.sh \"$IMAGE_REF\""}
         ]

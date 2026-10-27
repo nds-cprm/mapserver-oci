@@ -11,7 +11,3 @@ Pendências de segurança e boas práticas levantadas na revisão do projeto.
 ## Prioridade baixa (boas práticas)
 
 - [ ] **Mapfile de exemplo na release.** O `default.map` é publicado como `DEFAULT`, com `wms_enable_request "*"` e `include_items "all"`. Documentar como remover o alias ou levar o exemplo só para a `-devel`.
-- [ ] **Publicar a `release-mapscript` (Python MapScript).** Na branch `mapscript`, o MapScript é compilado no `compile` e a `release-mapscript` (base `<GDAL>-py<PY>`) o instala no venv, com o constraints em `/opt/geosgb/share/mapserver/constraints.txt`. Falta:
-  - acrescentar a variante no `docker-image.yml`, com `target: release-mapscript`, `scan: true`, smoke test e a tag `<versão>-mapscript` (a datada fica `<versão>-mapscript-<AAAAMMDD>`);
-  - acrescentar ao smoke test um `import mapscript` e a conferência do constraints;
-  - decidir se ela substitui a `release` sem Python ou se as duas são publicadas.

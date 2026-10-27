@@ -249,6 +249,10 @@ RUN --mount=type=bind,from=staging,source=/tmp/wheels,target=/tmp/wheels \
     pip list --format=freeze > "${BASE_DIR}/share/mapserver/constraints.txt" && \
     grep -q '^mapscript==' "${BASE_DIR}/share/mapserver/constraints.txt"
 
+# XDG_CACHE_HOME in a new directory in /tmp when ~/.cache is not writable (pip and other Python tools);
+# not executable, so the entrypoint sources it
+COPY --chmod=644 docker/30-xdg-cache.sh /docker-entrypoint.d/30-xdg-cache.sh
+
 # sample data with the modes set in build: nothing writable by the server (/var/lib/mapserver itself is created 755)
 COPY --from=build /var/lib/mapserver/ /var/lib/mapserver/
 
