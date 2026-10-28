@@ -11,7 +11,7 @@ O projeto é uma camada sobre a imagem base GDAL do SGB (`docker.io/ndscprm/gdal
 - **`<GDAL>-nopy`** (release sem Python), usada como base da imagem final `release`, que não usa Python;
 - **`<GDAL>-py<PY>`** (release com Python), base do estágio `release-mapscript`: a mesma imagem FastCGI mais o Python MapScript no venv (tag `<versão>-mapscript`).
 
-Os dois `FROM` precisam ter o mesmo `GDAL_VERSION`. Como as tags não têm data, confira que são do mesmo build do GDAL: em 2026-10-25, a `libgdal.so.38.3.12.4` da `3.12.4-nopy` era idêntica (md5) à da `3.12.4-py3.12`.
+As três imagens são passadas pelo nome completo (`ARG GDAL_IMAGE_DEVEL`, `GDAL_IMAGE_PY` e `GDAL_IMAGE_NOPY`) e precisam ser do mesmo build do GDAL. No CI, o gdal-oci passa as três tags datadas do build que acabou de publicar, com o digest (`<tag>-<AAAAMMDD>@sha256:...`). O padrão são as tags móveis, que um build local pode pegar de builds diferentes se uma delas for republicada no meio: em 2026-10-25, a `libgdal.so.38.3.12.4` da `3.12.4-nopy` era idêntica (md5) à da `3.12.4-py3.12`.
 
 - [Dockerfile](Dockerfile): quatro estágios. `compile` (compilação) dá origem a `build` (imagem `-devel`) e a `staging` (descartável); a `release` usa os dois. A `release` é o alvo padrão.
 - [etc/mapserver.conf](etc/mapserver.conf): arquivo de configuração do MapServer 8, instalado em `/opt/geosgb/etc/mapserver.conf`.
@@ -30,7 +30,7 @@ Os dois `FROM` precisam ter o mesmo `GDAL_VERSION`. Como as tags não têm data,
 - [README.md](README.md): documentação para quem usa a imagem (execução, variáveis, configuração, logs, build). Mantenha em sincronia com o Dockerfile.
 - [TODO.md](TODO.md): pendências de segurança e boas práticas da revisão do projeto. Remova os itens quando forem concluídos.
 
-- [.github/workflows/docker-image.yml](.github/workflows/docker-image.yml): CI. Roda por `workflow_dispatch`, que é também disparado pelo CI do gdal-oci (job `dispatch`) depois que ele publica tags novas da `ndscprm/gdal`, com as versões delas nas entradas `gdal_version`/`python_version`. O workflow as repassa em `build-args` como `GDAL_VERSION`/`PYTHON_VERSION`, então a imagem sai sobre as tags recém-publicadas; vazias (disparo manual), valem os `ARG` do Dockerfile. Não há build agendado: o disparo vem com a base nova, que invalida todas as camadas, então o `apt-get install` da release pega os pacotes atuais. Chama o **workflow reutilizável** [`nds-cprm/gdal-oci/.github/workflows/oci-image.yml@main`](https://github.com/nds-cprm/gdal-oci/blob/main/.github/workflows/oci-image.yml), documentado no README do gdal-oci ("Workflow reutilizável"). Aqui ficam só os gatilhos, as permissões e as entradas:
+- [.github/workflows/docker-image.yml](.github/workflows/docker-image.yml): CI. Roda por `workflow_dispatch`, que é também disparado pelo CI do gdal-oci (job `dispatch`) depois que ele publica tags novas da `ndscprm/gdal`, com os nomes completos delas (tag datada e digest) nas entradas `image_devel`, `image_py` e `image_nopy`. O workflow as repassa em `build-args` como `GDAL_IMAGE_DEVEL`/`GDAL_IMAGE_PY`/`GDAL_IMAGE_NOPY`, então a imagem sai sobre as imagens recém-publicadas. Vazias (disparo manual), valem os `ARG` do Dockerfile (as tags móveis). O job `check` recusa nomes fora de `docker.io/ndscprm/gdal:`. As três derivadas do gdal-oci declaram as mesmas três entradas. Não há build agendado: o disparo vem com a base nova, que invalida todas as camadas, então o `apt-get install` da release pega os pacotes atuais. Chama o **workflow reutilizável** [`nds-cprm/gdal-oci/.github/workflows/oci-image.yml@main`](https://github.com/nds-cprm/gdal-oci/blob/main/.github/workflows/oci-image.yml), documentado no README do gdal-oci ("Workflow reutilizável"). Aqui ficam só os gatilhos, as permissões e as entradas:
   - `image: docker.io/ndscprm/mapserver` e `version-arg: MAPSERVER_VERSION`: a versão é o `ARG MAPSERVER_VERSION=` do Dockerfile, que precisa ficar numa linha própria, no começo da linha (o workflow lê com `sed` e valida como `X.Y.Z`). Não há tag escrita no workflow: ao mudar a versão, as tags acompanham.
   - Três variantes: `devel` (`target: build`, tag `<versão>-devel`), `mapscript` (`target: release-mapscript`, tag `<versão>-mapscript`) e `release` (`target: release`, tag `<versão>`). As três saem de **uma única chamada do Bake** por arquitetura, então compartilham o estágio `compile` (todas têm o mesmo MapServer compilado). A `release` grava o cache (`cache-to`), porque passa por todos os estágios (`COPY --from=build` e `--from=staging`).
   - Fluxo (no workflow reutilizável): build por arquitetura em runner nativo (amd64 e arm64, sem QEMU), push só por digest com SBOM e provenance, testes no runner, scan (Docker Scout e Grype, SARIF `docker-scout-<variante>-<arch>` e `grype-<variante>-<arch>`) da `release` e da `mapscript` e, depois de tudo passar nas duas arquiteturas, as tags multiplataforma `<versão>`, `<versão>-mapscript` e `<versão>-devel`, mais as datadas `<versão>-<AAAAMMDD>`, `<versão>-mapscript-<AAAAMMDD>` e `<versão>-devel-<AAAAMMDD>` (`.2`, `.3`... no mesmo dia; nunca sobrescritas).
@@ -72,9 +72,9 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
 
 ## Estágios do Dockerfile
 
-`ARG` globais: `GDAL_VERSION=3.12.4`, `PYTHON_VERSION=3.12`, `BASE_DIR=/opt/geosgb`, `MAPSERVER_VERSION=8.6.6` e `MAPSERVER_SHA256`. `GDAL_VERSION` e `PYTHON_VERSION` montam a tag da `-devel`; a release usa só o `GDAL_VERSION` (`<GDAL>-nopy`).
+`ARG` globais: `GDAL_IMAGE_DEVEL=docker.io/ndscprm/gdal:3.12.4-py3.12-devel`, `GDAL_IMAGE_PY=docker.io/ndscprm/gdal:3.12.4-py3.12`, `GDAL_IMAGE_NOPY=docker.io/ndscprm/gdal:3.12.4-nopy`, `BASE_DIR=/opt/geosgb`, `MAPSERVER_VERSION=8.6.6` e `MAPSERVER_SHA256`. As imagens base são passadas pelo nome completo: o padrão são as tags móveis, reconstruídas no lugar toda semana pelo gdal-oci, e o CI passa as tags datadas (`<tag>-<AAAAMMDD>`, nunca sobrescritas; `.2`, `.3`... no mesmo dia) com o digest, as três do mesmo build. As tags disponíveis estão em `https://hub.docker.com/v2/repositories/ndscprm/gdal/tags?name=<gdal>-nopy`.
 
-### `compile` (`ndscprm/gdal:${GDAL_VERSION}-py${PYTHON_VERSION}-devel`)
+### `compile` (`${GDAL_IMAGE_DEVEL}`)
 - apt: `libfreetype-dev` e `libfcgi-dev`. Os demais headers (libpng, libjpeg, libpq, libxml2, PROJ, GEOS) já vêm da base.
 - Download do MapServer:
   - baixa da release do GitHub (tag `rel-X-Y-Z`, derivada com `${MAPSERVER_VERSION//./-}`, por isso o `RUN` usa bash);
@@ -117,20 +117,20 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
 - Gera `/tmp/wheels` para a `release-mapscript`: o wheel do MapScript desempacotado (`python -m wheel unpack`), com `strip --strip-debug` no `.so` e empacotado de novo (`wheel pack` reescreve os hashes do `RECORD`). Só faz diferença com `RelWithDebInfo`. O `_mapscript` não entra no `ldd` acima: ele linka a `libpython` de `/usr/local`, que não é de pacote Debian; as dependências dele são as da `libmapserver`, e a `release-mapscript` confere com um `import mapscript`.
 - Ao adicionar uma dependência no `build`, não é preciso mexer na release.
 
-### `release-mapscript` (`ndscprm/gdal:${GDAL_VERSION}-py${PYTHON_VERSION}`)
+### `release-mapscript` (`${GDAL_IMAGE_PY}`)
 - Mesmo texto da `release` (pacotes do `staging`, arquivos do MapServer, configuração, `start.sh`, healthcheck, dados, `ENV`, `USER 1000:0`, `HEALTHCHECK` e `CMD`), mas sobre a base com Python, do mesmo build do GDAL da `-devel`. Fica **antes** da `release`, que continua sendo o último estágio (alvo padrão).
 - Instala o wheel do `staging` (bind mount de `/tmp/wheels`) no venv da base com `--no-index --no-deps` (sem dependências, nada da base muda), depois `pip check` e `import mapscript`.
 - **Constraints**: grava `${BASE_DIR}/share/mapserver/constraints.txt` com os pacotes do venv depois da instalação (os da base mais o `mapscript`), para imagens derivadas: `pip install -c /opt/geosgb/share/mapserver/constraints.txt ...` não troca nenhum deles. Usa `pip list --format=freeze`, e não `pip freeze`, porque pacotes instalados de wheel local (o `pyarrow` da base e o `mapscript`) sairiam como `nome @ file:///tmp/...`, caminho que não existe em outra imagem. O build falha se o `mapscript==` não estiver no arquivo. Não define `PIP_CONSTRAINT`: o uso fica a critério da imagem derivada.
 - Testada no CI (variante `mapscript`) com o `smoke-test.sh` da release (o mesmo FastCGI) e depois o [.github/scripts/mapscript-test.sh](.github/scripts/mapscript-test.sh), como `--user 12345:0 --read-only --tmpfs /tmp`: `pip check`, o `constraints.txt` igual ao `pip list --format=freeze` do venv e com o `mapscript==<MS_VERSION>`, e o MapScript renderizando o `default.map` (`mapObj(...).draw()`, PNG). Confere também que o pip não avisa sobre o cache e usa o `XDG_CACHE_HOME` do `30-xdg-cache.sh`.
 - **Cache do Python (`XDG_CACHE_HOME`):** com o `HOME` somente leitura, o pip avisava que não podia usar `~/.cache`, e as outras ferramentas que usam o `XDG_CACHE_HOME` também ficariam sem cache. O [docker/30-xdg-cache.sh](docker/30-xdg-cache.sh), carregado com `.` depois do `20-mapserver-home.sh`, exporta `XDG_CACHE_HOME` num diretório novo criado com `mktemp -d` (`${TMPDIR:-/tmp}/cache.XXXXXX`, 0700), nunca num caminho fixo do `/tmp`, quando o `~/.cache` não é gravável (nem diretório gravável, nem ausente num `HOME` gravável). Mantém um `XDG_CACHE_HOME` próprio e o `~/.cache` do root. Se o `mktemp` falhar, o cache fica desligado, sem impedir a inicialização (o script roda sob o `set -e` do entrypoint, por isso os testes ficam em `if`). Não vale para `docker exec`, que não passa pelo entrypoint. Fica só na `release-mapscript`: a `release` não tem Python. Tamanho: cerca de 620 MB (a `release` tem cerca de 450 MB).
 
-### `release` (`ndscprm/gdal:${GDAL_VERSION}-nopy`)
+### `release` (`${GDAL_IMAGE_NOPY}`)
 - **Herdado da base**:
   - GDAL, Oracle basiclite, `ld.so.conf.d`, symlink `libaio.so.1`, `ca-certificates` e o `nss_wrapper`;
   - `ENV` `PATH` (sem venv) e `GDAL_DATA`;
   - `ENTRYPOINT ["/docker-entrypoint.sh"]`.
   - Não tem Python, venv nem o repositório apt do Arrow. As bibliotecas do Arrow já vêm instaladas; o `staging` (que roda na `-devel`, com o repositório) as lista, e o `apt` só registra que já estão na versão mais nova. Se uma versão nova da base exigir um pacote do Arrow que a `-nopy` não tenha, o `apt` da release falha.
-- **`LABEL`**: `org.opencontainers.image.*` (`title`, `description`, `vendor`, `version` a partir do `ARG MAPSERVER_VERSION`, `source` e `authors`). O estágio `build` (`-devel`) não define labels próprias.
+- **`LABEL`**: `org.opencontainers.image.*` (`title`, `description`, `vendor`, `version` a partir do `ARG MAPSERVER_VERSION`, `source` e `authors`), mais o `base.name`, a imagem base do estágio (`GDAL_IMAGE_PY` na `release-mapscript`, `GDAL_IMAGE_NOPY` na `release`, redeclarados com `ARG`), porque as tags da imagem não dizem sobre qual base ela foi construída: no CI, a tag datada com o digest, passada pelo gdal-oci. O estágio `build` (`-devel`) define só o `base.name`, com o `GDAL_IMAGE_DEVEL`; os outros labels dele vêm da base.
 - **apt**: instala os pacotes do `staging` (por bind mount) e os que não são linkados: `fonts-liberation` (usado por `data/fonts.txt`), `libfcgi-bin` (o `cgi-fcgi` do healthcheck, 68 KB; a biblioteca `libfcgi0t64` já vem da lista do `staging`), `multiwatch` e `spawn-fcgi`.
 - **Ordem**:
   1. `RUN` do apt;
@@ -198,7 +198,7 @@ Para a OGC API, a rota vem no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi`). O 
   curl -sL https://download.osgeo.org/mapserver/mapserver-8.6.6.tar.gz | sha256sum
   ```
 
-- **GDAL/Python**: só os `ARG`. As duas tags (`<GDAL>-py<PY>-devel` e `<GDAL>-nopy`) precisam existir e ser do mesmo build do GDAL.
+- **GDAL/Python da base**: só os três `ARG GDAL_IMAGE_*`. As três imagens precisam existir e ser do mesmo build do GDAL.
 
 ## Imagem base (`ndscprm/gdal`)
 
@@ -225,4 +225,4 @@ Fatos verificados nas tags `3.12.4-py3.12-devel`, `3.12.4-py3.12` e `3.12.4-nopy
 - Arquivo novo copiado pelo Dockerfile fora de `data/`, `docker/`, `etc/` e `fcgi/`: liberar no `.dockerignore`.
 - Todo download externo é verificado contra um SHA256 fixado no Dockerfile.
 - Comentários no Dockerfile em inglês; documentação em português.
-- `release-mapscript` e `release` são mantidas com o mesmo texto, a não ser pelo `FROM`, pelo `LABEL` de descrição, pelo `RUN` do MapScript e pelo `COPY` do `30-xdg-cache.sh`: uma mudança em uma vai também para a outra. Confira com `diff <(sed -n '/AS release-mapscript$/,/^CMD/p' Dockerfile) <(sed -n '/AS release$/,/^CMD/p' Dockerfile)`, que só deve mostrar essas quatro diferenças.
+- `release-mapscript` e `release` são mantidas com o mesmo texto, a não ser pelo `FROM` (e o `ARG` da imagem base, usado no `base.name`), pelo `LABEL` de descrição, pelo `RUN` do MapScript e pelo `COPY` do `30-xdg-cache.sh`: uma mudança em uma vai também para a outra. Confira com `diff <(sed -n '/AS release-mapscript$/,/^CMD/p' Dockerfile) <(sed -n '/AS release$/,/^CMD/p' Dockerfile)`, que só deve mostrar essas quatro diferenças.

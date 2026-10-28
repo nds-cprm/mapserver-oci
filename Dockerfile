@@ -1,5 +1,11 @@
-ARG GDAL_VERSION=3.12.4
-ARG PYTHON_VERSION=3.12
+# base images: ndscprm/gdal (Debian trixie + official Python + GDAL in /opt/geosgb),
+# by full name. The defaults are the moving tags, rebuilt in place every week, for
+# local builds; the CI passes the exact images the CI of gdal-oci has just
+# published (dated tag and digest: <tag>-<YYYYMMDD>@sha256:...), all of the same
+# build of the base
+ARG GDAL_IMAGE_DEVEL=docker.io/ndscprm/gdal:3.12.4-py3.12-devel
+ARG GDAL_IMAGE_PY=docker.io/ndscprm/gdal:3.12.4-py3.12
+ARG GDAL_IMAGE_NOPY=docker.io/ndscprm/gdal:3.12.4-nopy
 
 ARG BASE_DIR=/opt/geosgb
 
@@ -8,7 +14,7 @@ ARG MAPSERVER_VERSION=8.6.6
 ARG MAPSERVER_SHA256=e908e76b65541042042e9c5e4ae16a131f064cf6d3c76e9542c89b25158968c9
 
 
-FROM docker.io/ndscprm/gdal:${GDAL_VERSION}-py${PYTHON_VERSION}-devel AS compile
+FROM ${GDAL_IMAGE_DEVEL} AS compile
 
 SHELL [ "/bin/bash", "-o", "pipefail", "-c" ]
 
@@ -118,6 +124,10 @@ SHELL [ "/bin/sh", "-c" ]
 FROM compile AS build
 
 ARG BASE_DIR
+# the base this image was built on: its tags (<version>-devel, and the dated one) do not say
+ARG GDAL_IMAGE_DEVEL
+
+LABEL org.opencontainers.image.base.name="${GDAL_IMAGE_DEVEL}"
 
 RUN apt-get -y update && \
     apt-get install -y --no-install-recommends --no-install-suggests \
@@ -198,18 +208,22 @@ SHELL [ "/bin/sh", "-c" ]
 
 # The same FastCGI server as release, on the GDAL image with Python (same GDAL build as the -devel one), plus
 # Python MapScript in its venv. Defined before release, which stays the last stage (default target).
-# Keep both stages in sync: apart from FROM, the description label and the MapScript RUN, they are the same text
-FROM docker.io/ndscprm/gdal:${GDAL_VERSION}-py${PYTHON_VERSION} AS release-mapscript
+# Keep both stages in sync: apart from FROM and its ARG, the description label and the MapScript RUN, they are the
+# same text
+FROM ${GDAL_IMAGE_PY} AS release-mapscript
 
 ARG BASE_DIR
 ARG MAPSERVER_VERSION
+# the base this image was built on: its tags (<version>-mapscript, and the dated one) do not say
+ARG GDAL_IMAGE_PY
 
 LABEL org.opencontainers.image.title="MapServer SGB/CPRM" \
       org.opencontainers.image.description="MapServer FastCGI e Python MapScript compilados a partir do código fonte, com suporte a Oracle Spatial" \
       org.opencontainers.image.vendor="SGB/CPRM" \
       org.opencontainers.image.version="${MAPSERVER_VERSION}" \
       org.opencontainers.image.source="https://github.com/nds-cprm/mapserver-oci" \
-      org.opencontainers.image.authors="Carlos Eduardo Mota <carlos.mota@sgb.gov.br>"
+      org.opencontainers.image.authors="Carlos Eduardo Mota <carlos.mota@sgb.gov.br>" \
+      org.opencontainers.image.base.name="${GDAL_IMAGE_PY}"
 
 RUN --mount=type=bind,from=staging,source=/tmp/runtime-packages.txt,target=/tmp/runtime-packages.txt \
     apt-get -y update && \
@@ -284,17 +298,20 @@ CMD [ "/start.sh" ]
 # MapServer as a FastCGI server (multiwatch-managed workers behind spawn-fcgi). Based on the GDAL image without
 # Python (-nopy, same GDAL build as the -devel one), as nothing here uses it; Python MapScript is in release-mapscript.
 # Keep release-mapscript in sync with this stage
-FROM docker.io/ndscprm/gdal:${GDAL_VERSION}-nopy AS release
+FROM ${GDAL_IMAGE_NOPY} AS release
 
 ARG BASE_DIR
 ARG MAPSERVER_VERSION
+# the base this image was built on: its tags (<version>, and the dated one) do not say
+ARG GDAL_IMAGE_NOPY
 
 LABEL org.opencontainers.image.title="MapServer SGB/CPRM" \
       org.opencontainers.image.description="MapServer FastCGI compilado a partir do código fonte, com suporte a Oracle Spatial" \
       org.opencontainers.image.vendor="SGB/CPRM" \
       org.opencontainers.image.version="${MAPSERVER_VERSION}" \
       org.opencontainers.image.source="https://github.com/nds-cprm/mapserver-oci" \
-      org.opencontainers.image.authors="Carlos Eduardo Mota <carlos.mota@sgb.gov.br>"
+      org.opencontainers.image.authors="Carlos Eduardo Mota <carlos.mota@sgb.gov.br>" \
+      org.opencontainers.image.base.name="${GDAL_IMAGE_NOPY}"
 
 RUN --mount=type=bind,from=staging,source=/tmp/runtime-packages.txt,target=/tmp/runtime-packages.txt \
     apt-get -y update && \

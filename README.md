@@ -347,6 +347,12 @@ docker build -t docker.io/ndscprm/mapserver:8.6.6 .
 docker build --target release-mapscript -t mapserver:8.6.6-mapscript .
 # imagem de desenvolvimento: toolchain, headers e código-fonte do GDAL e do MapServer, com o MapScript no venv
 docker build --target build -t docker.io/ndscprm/mapserver:8.6.6-devel .
+# sobre um build fixo da imagem base (tags datadas, opcionalmente com o digest), como no CI
+docker build \
+    --build-arg GDAL_IMAGE_DEVEL=docker.io/ndscprm/gdal:3.12.4-py3.12-devel-20261026 \
+    --build-arg GDAL_IMAGE_PY=docker.io/ndscprm/gdal:3.12.4-py3.12-20261026 \
+    --build-arg GDAL_IMAGE_NOPY=docker.io/ndscprm/gdal:3.12.4-nopy-20261026 \
+    -t docker.io/ndscprm/mapserver:8.6.6 .
 ```
 
 ### Python MapScript (`release-mapscript`)
@@ -372,14 +378,15 @@ A `-devel` também tem o MapScript no venv e guarda o wheel em `/wheels` (`mapsc
 
 | Arg | Padrão | Descrição |
 |-----|--------|-----------|
-| `GDAL_VERSION` | `3.12.4` | Versão da imagem base `ndscprm/gdal` |
-| `PYTHON_VERSION` | `3.12` | Versão do Python da imagem base de compilação (`-devel`) e da `release-mapscript`; a imagem final não tem Python |
+| `GDAL_IMAGE_DEVEL` | `docker.io/ndscprm/gdal:3.12.4-py3.12-devel` | Imagem base de compilação e da imagem `-devel` |
+| `GDAL_IMAGE_PY` | `docker.io/ndscprm/gdal:3.12.4-py3.12` | Imagem base da `release-mapscript` (com Python) |
+| `GDAL_IMAGE_NOPY` | `docker.io/ndscprm/gdal:3.12.4-nopy` | Imagem base da imagem final (sem Python) |
 | `MAPSERVER_VERSION` | `8.6.6` | Versão do MapServer |
 | `MAPSERVER_SHA256` | SHA256 do `mapserver-8.6.6.tar.gz` | Atualizar junto com `MAPSERVER_VERSION` |
 | `MAPSERVER_BUILD_TYPE` | `Release` | `Release` (sem símbolos de debug) ou `RelWithDebInfo` (acrescenta os símbolos à `-devel`, para depurar com o gdb). O código-fonte fica na `-devel` nos dois casos, e a release sai igual |
 | `HARDENING_CFLAGS` / `HARDENING_LDFLAGS` | `-fstack-protector-strong -fstack-clash-protection -D_FORTIFY_SOURCE=3` / `-Wl,-z,relro,-z,now` | Proteções de compilação do MapServer, as mesmas da base `ndscprm/gdal` (o gcc do Debian não as liga por padrão) |
 
-As tags `ndscprm/gdal:<GDAL_VERSION>-py<PYTHON_VERSION>-devel` (build e imagem `-devel`) e `ndscprm/gdal:<GDAL_VERSION>-nopy` (imagem final, sem Python) precisam existir.
+As três imagens base são passadas pelo nome completo e precisam ser do mesmo build do GDAL. O padrão são as tags móveis, reconstruídas toda semana. O CI usa as tags datadas (`<tag>-<AAAAMMDD>`, que nunca mudam) com o digest, passadas pelo CI do gdal-oci. As tags disponíveis estão em `https://hub.docker.com/v2/repositories/ndscprm/gdal/tags?name=3.12.4-nopy`.
 
 O código-fonte do MapServer é baixado da release no GitHub e verificado contra `MAPSERVER_SHA256`. Para obter o hash de uma nova versão:
 
