@@ -19,9 +19,9 @@ Each tag starts with the **MapServer version** (`<version>` in the examples belo
 | Suffix | Contents |
 |---|---|
 | none | Final image: the FastCGI server, without Python. |
-| `-mapscript` | The same FastCGI server, with Python and **Python MapScript**. |
-| `-devel` | Development image: toolchain, headers and the GDAL and MapServer source code, for debugging or building against MapServer. Runs as root. |
-| `-YYYYMMDD` | Appended to any of the above (`<version>-YYYYMMDD`, `<version>-mapscript-YYYYMMDD`, `<version>-devel-YYYYMMDD`): one specific build, identified by its date (UTC). Never overwritten: a second build on the same day gets `.2`, `.3`... Use it, preferably with its digest, to pin an exact image or to roll back. |
+| `-py<python>-mapscript` | The same FastCGI server, with Python and **Python MapScript**. `<python>` is the Python `major.minor` version MapScript was built for, for example `-py3.12-mapscript`. |
+| `-py<python>-devel` | Development image: toolchain, headers, the GDAL and MapServer source code and MapScript for the same Python, for debugging or building against MapServer. Runs as root. |
+| `-YYYYMMDD` | Appended to any of the above (`<version>-YYYYMMDD`, `<version>-py<python>-mapscript-YYYYMMDD`, `<version>-py<python>-devel-YYYYMMDD`): one specific build, identified by its date (UTC). Never overwritten: a second build on the same day gets `.2`, `.3`... Use it, preferably with its digest, to pin an exact image or to roll back. |
 
 The available versions are listed in the Tags tab. The tags without a date are moving: they are rebuilt whenever the base image [`ndscprm/gdal`](https://hub.docker.com/r/ndscprm/gdal) is updated, picking up Debian security fixes. There is no `latest` tag.
 
@@ -119,21 +119,21 @@ docker exec ms env -i REQUEST_METHOD=GET SCRIPT_NAME=/mapserver \
 
 ## Python MapScript
 
-The `-mapscript` tag has MapScript installed in the `/opt/geosgb/venv` virtualenv (the `python` and `pip` on the `PATH`):
+The `-py<python>-mapscript` tags have MapScript installed in the `/opt/geosgb/venv` virtualenv (the `python` and `pip` on the `PATH`):
 
 ```sh
-docker run --rm docker.io/ndscprm/mapserver:<version>-mapscript \
+docker run --rm docker.io/ndscprm/mapserver:<version>-py<python>-mapscript \
   python -c "import mapscript; print(mapscript.msGetVersion())"
 ```
 
 In a derived image, install your packages with the shipped constraints file, so nothing replaces GDAL, numpy or MapScript:
 
 ```dockerfile
-FROM docker.io/ndscprm/mapserver:<version>-mapscript
+FROM docker.io/ndscprm/mapserver:<version>-py<python>-mapscript
 RUN pip install --no-cache-dir -c /opt/geosgb/share/mapserver/constraints.txt my-dependency
 ```
 
-The GDAL Python utilities (`gdal_calc.py`, `import osgeo`) are only in the `-mapscript` and `-devel` tags. The native ones (`gdalinfo`, `ogr2ogr`) are in all of them.
+The GDAL Python utilities (`gdal_calc.py`, `import osgeo`) are only in the `-py<python>-mapscript` and `-py<python>-devel` tags. The native ones (`gdalinfo`, `ogr2ogr`) are in all of them.
 
 ## License
 

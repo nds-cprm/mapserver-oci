@@ -124,7 +124,7 @@ SHELL [ "/bin/sh", "-c" ]
 FROM compile AS build
 
 ARG BASE_DIR
-# the base this image was built on: its tags (<version>-devel, and the dated one) do not say
+# the base this image was built on: its tags (<version>-py<X.Y>-devel, and the dated one) only say its Python
 ARG GDAL_IMAGE_DEVEL
 
 LABEL org.opencontainers.image.base.name="${GDAL_IMAGE_DEVEL}"
@@ -214,7 +214,7 @@ FROM ${GDAL_IMAGE_PY} AS release-mapscript
 
 ARG BASE_DIR
 ARG MAPSERVER_VERSION
-# the base this image was built on: its tags (<version>-mapscript, and the dated one) do not say
+# the base this image was built on: its tags (<version>-py<X.Y>-mapscript, and the dated one) only say its Python
 ARG GDAL_IMAGE_PY
 
 LABEL org.opencontainers.image.title="MapServer SGB/CPRM" \

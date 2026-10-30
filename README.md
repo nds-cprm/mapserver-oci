@@ -11,7 +11,7 @@ A imagem é construída sobre a imagem GDAL do SGB (`docker.io/ndscprm/gdal`) e 
 - Oracle Instant Client 19 (basiclite);
 - PROJ 9.6 e GEOS 3.13 (Debian 13 "trixie").
 
-A imagem final não tem Python (base `ndscprm/gdal:<versão>-nopy`): os utilitários Python do GDAL (`gdal_calc.py`, `import osgeo` etc.) só estão nas imagens `-mapscript` e `-devel`. Os utilitários nativos (`gdalinfo`, `ogr2ogr` etc.) estão em todas.
+A imagem final não tem Python (base `ndscprm/gdal:<versão>-nopy`): os utilitários Python do GDAL (`gdal_calc.py`, `import osgeo` etc.) só estão nas imagens `-py<python>-mapscript` e `-devel`. Os utilitários nativos (`gdalinfo`, `ogr2ogr` etc.) estão em todas.
 
 ## Execução
 
@@ -317,12 +317,12 @@ Para a OGC API, a rota vai no `PATH_INFO` (ex.: `PATH_INFO=/DEFAULT/ogcapi/colle
 
 São publicadas três tags por versão:
 - `ndscprm/mapserver:<versão>`: imagem final, sem Python;
-- `ndscprm/mapserver:<versão>-mapscript`: o mesmo servidor FastCGI, com Python e o Python MapScript (veja abaixo);
-- `ndscprm/mapserver:<versão>-devel`: imagem de desenvolvimento, para depurar ou compilar código que dependa do MapServer.
+- `ndscprm/mapserver:<versão>-py<python>-mapscript`: o mesmo servidor FastCGI, com Python e o Python MapScript (veja abaixo);
+- `ndscprm/mapserver:<versão>-py<python>-devel`: imagem de desenvolvimento, para depurar ou compilar código que dependa do MapServer.
 
-Essas tags são móveis: cada build as atualiza. Cada build também cria tags datadas, que nunca são sobrescritas, para fixar uma versão ou voltar a uma anterior: `<versão>-<AAAAMMDD>`, `<versão>-mapscript-<AAAAMMDD>` e `<versão>-devel-<AAAAMMDD>` (ex.: `8.6.6-20261026`; um segundo build no mesmo dia recebe `.2`, `.3`...). As imagens publicadas têm attestations de SBOM e de provenance (`docker buildx imagetools inspect docker.io/ndscprm/mapserver:8.6.6 --format '{{ json .SBOM }}'`).
+Essas tags são móveis: cada build as atualiza. Cada build também cria tags datadas, que nunca são sobrescritas, para fixar uma versão ou voltar a uma anterior: `<versão>-<AAAAMMDD>`, `<versão>-py<python>-mapscript-<AAAAMMDD>` e `<versão>-py<python>-devel-<AAAAMMDD>` (ex.: `8.6.6-20261026`; um segundo build no mesmo dia recebe `.2`, `.3`...). As imagens publicadas têm attestations de SBOM e de provenance (`docker buildx imagetools inspect docker.io/ndscprm/mapserver:8.6.6 --format '{{ json .SBOM }}'`).
 
-Para conferir uma imagem construída localmente com o mesmo teste do CI: `sh .github/scripts/smoke-test.sh <imagem>` (com Podman: `DOCKER=podman sh .github/scripts/smoke-test.sh <imagem>`). Na `-mapscript`, rode também `sh .github/scripts/mapscript-test.sh <imagem>`.
+Para conferir uma imagem construída localmente com o mesmo teste do CI: `sh .github/scripts/smoke-test.sh <imagem>` (com Podman: `DOCKER=podman sh .github/scripts/smoke-test.sh <imagem>`). Na `-py<python>-mapscript`, rode também `sh .github/scripts/mapscript-test.sh <imagem>`.
 
 A imagem `-devel` também roda o MapServer como FastCGI, com o mesmo `start.sh`, a mesma configuração e os mesmos dados de exemplo, mas com 1 worker por padrão. O comando padrão continua `python3`, então é preciso passar `/start.sh`:
 
@@ -330,7 +330,7 @@ A imagem `-devel` também roda o MapServer como FastCGI, com o mesmo `start.sh`,
 # porta publicada só no host local, para depuração (veja Porta FastCGI)
 docker run -d --name mapserver-devel -p 127.0.0.1:8080:8080 \
   --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
-  docker.io/ndscprm/mapserver:8.6.6-devel /start.sh
+  docker.io/ndscprm/mapserver:8.6.6-py3.12-devel /start.sh
 # depurar o worker com gdb (a imagem base não traz o gdb: instale na hora, como root)
 docker exec -u 0 mapserver-devel sh -c 'apt-get update && apt-get install -y gdb'
 docker exec -it mapserver-devel sh -c 'gdb -p $(pgrep -f "^/opt/geosgb/bin/mapserv")'
@@ -344,9 +344,9 @@ As duas tags são multiplataforma (`linux/amd64` e `linux/arm64`). O Docker esco
 # imagem final (FastCGI)
 docker build -t docker.io/ndscprm/mapserver:8.6.6 .
 # imagem final com Python MapScript (base ndscprm/gdal com Python)
-docker build --target release-mapscript -t mapserver:8.6.6-mapscript .
+docker build --target release-mapscript -t mapserver:8.6.6-py3.12-mapscript .
 # imagem de desenvolvimento: toolchain, headers e código-fonte do GDAL e do MapServer, com o MapScript no venv
-docker build --target build -t docker.io/ndscprm/mapserver:8.6.6-devel .
+docker build --target build -t docker.io/ndscprm/mapserver:8.6.6-py3.12-devel .
 # sobre um build fixo da imagem base (tags datadas, opcionalmente com o digest), como no CI
 docker build \
     --build-arg GDAL_IMAGE_DEVEL=docker.io/ndscprm/gdal:3.12.4-py3.12-devel-20261026 \
@@ -357,18 +357,18 @@ docker build \
 
 ### Python MapScript (`release-mapscript`)
 
-O estágio `release-mapscript` tem o mesmo servidor FastCGI da imagem final, sobre a `ndscprm/gdal` com Python, e o **Python MapScript** instalado no virtualenv `/opt/geosgb/venv` (o `python` e o `pip` do `PATH`). É publicado como `ndscprm/mapserver:<versão>-mapscript`.
+O estágio `release-mapscript` tem o mesmo servidor FastCGI da imagem final, sobre a `ndscprm/gdal` com Python, e o **Python MapScript** instalado no virtualenv `/opt/geosgb/venv` (o `python` e o `pip` do `PATH`). É publicado como `ndscprm/mapserver:<versão>-py<python>-mapscript`.
 
 Como o `HOME` (`/var/lib/mapserver`) é somente leitura, a imagem aponta o `XDG_CACHE_HOME` para um diretório novo no `/tmp` ao iniciar, então o pip e outras ferramentas que usam esse cache funcionam sem aviso. Um `-e XDG_CACHE_HOME=...` próprio é mantido. Isso não vale para comandos rodados com `docker exec`, que não passam pelo entrypoint. Ferramentas que gravam em `~/.config` precisam de um diretório próprio (ex.: `MPLCONFIGDIR=/tmp/matplotlib`). No build de uma imagem derivada, como root, não há essa restrição.
 
 ```bash
-docker run --rm docker.io/ndscprm/mapserver:8.6.6-mapscript python -c "import mapscript; print(mapscript.msGetVersion())"
+docker run --rm docker.io/ndscprm/mapserver:8.6.6-py3.12-mapscript python -c "import mapscript; print(mapscript.msGetVersion())"
 ```
 
 O arquivo `/opt/geosgb/share/mapserver/constraints.txt` lista as versões de todos os pacotes do venv (os da imagem base, como GDAL, numpy e pyarrow, e o `mapscript`). Numa imagem derivada, use-o para que nenhuma instalação os troque:
 
 ```dockerfile
-FROM docker.io/ndscprm/mapserver:8.6.6-mapscript
+FROM docker.io/ndscprm/mapserver:8.6.6-py3.12-mapscript
 RUN pip install --no-cache-dir -c /opt/geosgb/share/mapserver/constraints.txt minha-dependencia
 ```
 

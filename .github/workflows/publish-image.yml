@@ -37,11 +37,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # the inputs must name ndscprm/gdal images: a manual run could otherwise build on any image
+  # the inputs must name ndscprm/gdal images: a manual run could otherwise build on any image.
+  # Also gives the Python version of the devel and release-mapscript bases, part of their tags
   check:
     runs-on: ubuntu-24.04
-    permissions: {}
+    permissions:
+      contents: read
+    outputs:
+      python: ${{ steps.python.outputs.python }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - env:
           IMAGES: ${{ inputs.image_devel }} ${{ inputs.image_py }} ${{ inputs.image_nopy }}
         run: |
@@ -54,6 +63,36 @@ jobs:
                       ;;
               esac
           done
+
+      # major.minor from the -py<X.Y> of the devel and py images given, or of the ARG defaults
+      # (docker.io/ndscprm/gdal:3.12.4-py3.12-20261026@sha256:... -> 3.12). Both must have the same
+      # Python: the MapScript wheel built in the devel is installed in release-mapscript
+      - name: Python version
+        id: python
+        env:
+          IMAGE_DEVEL: ${{ inputs.image_devel }}
+          IMAGE_PY: ${{ inputs.image_py }}
+        run: |
+          python=
+          for arg in GDAL_IMAGE_DEVEL GDAL_IMAGE_PY; do
+              case $arg in
+                  GDAL_IMAGE_DEVEL) image=$IMAGE_DEVEL ;;
+                  GDAL_IMAGE_PY) image=$IMAGE_PY ;;
+              esac
+              image=${image:-$(sed -n "s/^ARG ${arg}=//p" Dockerfile)}
+              py=$(printf '%s\n' "$image" | sed -nE 's/^[^:]*:[^@]*-py([0-9]+\.[0-9]+)([-@].*)?$/\1/p')
+              if [ -z "$py" ]; then
+                  echo "::error::no -py<major.minor> in the tag of $image ($arg)"
+                  exit 1
+              fi
+              if [ -n "$python" ] && [ "$py" != "$python" ]; then
+                  echo "::error::Python $py in $image ($arg), but $python in the devel image"
+                  exit 1
+              fi
+              python=$py
+              echo "Python $py ($arg: $image)"
+          done
+          echo "python=${python}" >> "$GITHUB_OUTPUT"
 
   # Build, test, scan and tags in the reusable workflow of the base image (README of gdal-oci,
   # "Workflow reutilizável"): native runners per architecture, push by digest, tags only after the
@@ -81,13 +120,14 @@ jobs:
       # devel, mapscript and release come from the same Bake call, so they share the compile stage (same
       # MapServer build); the release goes through every stage it needs (COPY --from=build and staging), so it
       # writes the cache. mapscript (release-mapscript) is the release FastCGI server on the GDAL base with
-      # Python plus Python MapScript: the smoke test of the release, then its own.
+      # Python plus Python MapScript: the smoke test of the release, then its own. The tags of devel and
+      # mapscript, which have Python and MapScript, carry its version (<version>-py<X.Y>-devel/-mapscript).
       # Vulnerabilities are only reported (no fail-on-severity), but a failed scan stops the publication
       variants: |
         [
-          {"name": "devel", "target": "build", "tag": "{version}-devel",
+          {"name": "devel", "target": "build", "tag": "{version}-py${{ needs.check.outputs.python }}-devel",
            "test": "sh .github/scripts/devel-test.sh \"$IMAGE_REF\""},
-          {"name": "mapscript", "target": "release-mapscript", "tag": "{version}-mapscript", "scan": true,
+          {"name": "mapscript", "target": "release-mapscript", "tag": "{version}-py${{ needs.check.outputs.python }}-mapscript", "scan": true,
            "test": "sh .github/scripts/smoke-test.sh \"$IMAGE_REF\" && sh .github/scripts/mapscript-test.sh \"$IMAGE_REF\""},
           {"name": "release", "target": "release", "tag": "{version}", "scan": true, "cache-to": true,
            "test": "sh .github/scripts/smoke-test.sh \"$IMAGE_REF\""}

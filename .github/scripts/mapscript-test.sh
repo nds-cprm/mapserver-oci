@@ -1,5 +1,5 @@
 #!/bin/sh
-# Test of the release-mapscript image (-mapscript tag), run by the CI after smoke-test.sh, which covers its
+# Test of the release-mapscript image (-py<X.Y>-mapscript tag), run by the CI after smoke-test.sh, which covers its
 # FastCGI server (the same as the release), and locally: DOCKER=podman .github/scripts/mapscript-test.sh <image>.
 # Python MapScript as it runs in derived images: arbitrary UID, read-only root filesystem
 set -eu
