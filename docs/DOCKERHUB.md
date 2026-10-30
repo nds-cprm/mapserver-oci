@@ -137,4 +137,4 @@ The GDAL Python utilities (`gdal_calc.py`, `import osgeo`) are only in the `-py<
 
 ## License
 
-MapServer is released under the MIT-style MapServer license. As with any container image, this image also contains software under other licenses (Debian, GDAL, the Oracle Instant Client and their dependencies), and it is the user's responsibility to make sure their use complies with them.
+Apache-2.0. MapServer itself is released under the MIT-style MapServer license. As with any container image, this image also contains software under other licenses (Debian, GDAL, the Oracle Instant Client and their dependencies), and it is the user's responsibility to make sure their use complies with them.

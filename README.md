@@ -394,3 +394,11 @@ O código-fonte do MapServer é baixado da release no GitHub e verificado contra
 curl -s https://api.github.com/repos/MapServer/MapServer/releases/tags/rel-8-6-6 \
   | jq -r '.assets[] | select(.name == "mapserver-8.6.6.tar.gz") | .digest'
 ```
+
+## Licença
+
+[Apache License 2.0](LICENSE).
+
+Este software é fornecido "no estado em que se encontra", sem garantia de qualquer tipo e sem compromisso de manutenção, suporte ou atualização.
+
+O MapServer é © Regents of the University of Minnesota e colaboradores, distribuído sob a [licença do MapServer](https://mapserver.org/copyright.html), de estilo MIT. A imagem também contém software sob outras licenças (Debian, GDAL, Oracle Instant Client e suas dependências), e cabe a quem a usa conferir se o uso respeita essas licenças.
