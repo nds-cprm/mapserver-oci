@@ -124,10 +124,21 @@ SHELL [ "/bin/sh", "-c" ]
 FROM compile AS build
 
 ARG BASE_DIR
+ARG MAPSERVER_VERSION
 # the base this image was built on: its tags (<version>-py<X.Y>-devel, and the dated one) only say its Python
 ARG GDAL_IMAGE_DEVEL
 
-LABEL org.opencontainers.image.base.name="${GDAL_IMAGE_DEVEL}"
+# every key, or the labels of the ndscprm/gdal devel would show through
+LABEL org.opencontainers.image.title="MapServer SGB/CPRM" \
+      org.opencontainers.image.description="MapServer compilado a partir do código fonte, com suporte a Oracle Spatial: imagem de desenvolvimento, com compiladores, headers, código-fonte e Python MapScript" \
+      org.opencontainers.image.vendor="SGB/CPRM" \
+      org.opencontainers.image.version="${MAPSERVER_VERSION}" \
+      org.opencontainers.image.source="https://github.com/nds-cprm/mapserver-oci" \
+      org.opencontainers.image.authors="Carlos Eduardo Mota <carlos.mota@sgb.gov.br>" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.url="https://hub.docker.com/r/ndscprm/mapserver" \
+      org.opencontainers.image.documentation="https://github.com/nds-cprm/mapserver-oci#readme" \
+      org.opencontainers.image.base.name="${GDAL_IMAGE_DEVEL}"
 
 RUN apt-get -y update && \
     apt-get install -y --no-install-recommends --no-install-suggests \
@@ -223,6 +234,9 @@ LABEL org.opencontainers.image.title="MapServer SGB/CPRM" \
       org.opencontainers.image.version="${MAPSERVER_VERSION}" \
       org.opencontainers.image.source="https://github.com/nds-cprm/mapserver-oci" \
       org.opencontainers.image.authors="Carlos Eduardo Mota <carlos.mota@sgb.gov.br>" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.url="https://hub.docker.com/r/ndscprm/mapserver" \
+      org.opencontainers.image.documentation="https://github.com/nds-cprm/mapserver-oci#readme" \
       org.opencontainers.image.base.name="${GDAL_IMAGE_PY}"
 
 RUN --mount=type=bind,from=staging,source=/tmp/runtime-packages.txt,target=/tmp/runtime-packages.txt \
@@ -311,6 +325,9 @@ LABEL org.opencontainers.image.title="MapServer SGB/CPRM" \
       org.opencontainers.image.version="${MAPSERVER_VERSION}" \
       org.opencontainers.image.source="https://github.com/nds-cprm/mapserver-oci" \
       org.opencontainers.image.authors="Carlos Eduardo Mota <carlos.mota@sgb.gov.br>" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.url="https://hub.docker.com/r/ndscprm/mapserver" \
+      org.opencontainers.image.documentation="https://github.com/nds-cprm/mapserver-oci#readme" \
       org.opencontainers.image.base.name="${GDAL_IMAGE_NOPY}"
 
 RUN --mount=type=bind,from=staging,source=/tmp/runtime-packages.txt,target=/tmp/runtime-packages.txt \
